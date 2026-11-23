@@ -4,7 +4,13 @@ LearNect is a peer-tutoring marketplace for university students, starting around
 
 This is a showcase demo. All people, courses, schedules and bookings are sample data, QRIS payment is simulated, and no real money is charged.
 
-## Run it
+## Try it online
+
+- **Website:** https://jerdut330.github.io/learnect/
+- **Booking and hosting:** https://jerdut330.github.io/learnect/website/app/
+- **Phone app:** https://jerdut330.github.io/learnect/demo/
+
+## Run it on your computer
 
 You need [Git](https://git-scm.com/downloads) and [Python 3](https://www.python.org/downloads/).
 
