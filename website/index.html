@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en" data-type="software" data-radius="soft" data-ground="sky" data-buttons="solid" data-motion>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LearNect: peer tutoring for BINUS students</title>
+<meta name="description" content="Book small-group sessions with BINUS students who already passed your course, in the free gaps between your classes, from Rp20.000 a seat.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="LearNect: peer tutoring for BINUS students">
+<meta property="og:description" content="Small-group sessions from students who passed your course, placed in the free gaps of your week.">
+<meta property="og:image" content="share.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="favicon.svg?v=2" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=2">
+<meta name="theme-color" content="#FBFBF7">
+<!-- <link rel="canonical" href="https://the-final-domain/"> added once hosting is chosen -->
+<meta name="site-kind" content="software">
+<meta name="page-type" content="software">
+<link rel="preload" href="assets/brand/fonts/archivo-wdth-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/system.css">
+<link rel="stylesheet" href="assets/ui/cards.css">
+<link rel="stylesheet" href="assets/motion/motion.css">
+<link rel="stylesheet" href="assets/backgrounds/backgrounds.css">
+<link rel="stylesheet" href="assets/layout/layout.css">
+<link rel="stylesheet" href="assets/moments/counter-rolls/moment.css">
+<link rel="stylesheet" href="css/site.css">
+<link rel="stylesheet" href="css/grand.css?v=8">
+<script>document.documentElement.classList.add('m-enter');setTimeout(()=>document.documentElement.classList.add('m-enter-done'),700)</script>
+<script src="assets/backgrounds/backgrounds.js"></script>
+<script>if(!matchMedia('(prefers-reduced-motion: reduce)').matches)document.documentElement.classList.add('grand-live')</script>
+<script>document.documentElement.classList.add('mo-js');setTimeout(()=>document.documentElement.classList.add('mo-safe'),2500)</script>
+<link rel="modulepreload" href="assets/moments/moments.js">
+<link rel="modulepreload" href="assets/moments/lib.js">
+<link rel="modulepreload" href="assets/moments/counter-rolls/moment.js">
+</head>
+<!-- type: software
+     deal: hero collage, nav nav-mega, close close-type, footer footer-dark, rhythm dark-band, buttons solid, mark client's Notched Tile
+     palette and type: the client's own (DESIGN.md, Class Timetable), in place of the dealt ones
+     moments: counter-rolls in #teach -->
+<body>
+<header class="nav">
+  <div class="wrap nav__bar">
+    <a class="skip-link" href="#top">Skip to content</a>
+    <a class="nav__logo" href="#top"><img class="ln-logo" src="assets/brand/logo.svg?v=2" alt="" width="28" height="28">LearNect</a>
+    <nav class="nav__links" aria-label="Main">
+      <div class="nav__item"><a class="nav__link" href="#week">Your week</a></div>
+      <div class="nav__item"><a class="nav__link" href="#mentors">Mentors</a></div>
+      <div class="nav__item"><a class="nav__link" href="#teach">Teach</a></div>
+      <div class="nav__item"><a class="nav__link" href="#questions">Questions</a></div>
+    </nav>
+    <div class="nav__actions">
+      <a class="btn btn--primary" href="app/">Find a session</a>
+    </div>
+    <button class="nav__toggle" type="button" aria-expanded="false" aria-label="Menu">
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M2 5h14M2 13h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+</header>
+
+<main id="top">
+  <section class="grand" data-grand aria-labelledby="hero-h">
+    <div class="grand__stage">
+      <canvas aria-hidden="true"></canvas>
+      <div class="beat beat--hero is-on" data-from="0" data-to="0.095">
+        <h1 id="hero-h" class="grand__title">Fill the gaps in your week</h1>
+        <p class="grand__lead">Peer tutoring for BINUS students, from someone who already passed your course. Rp20.000 to Rp30.000 a seat.</p>
+        <div class="grand__actions">
+          <a class="btn btn--primary" href="app/">Find a session</a>
+          <a class="grand__see" href="#week">See Alex’s week</a>
+        </div>
+      </div>
+      <div class="beat" data-from="0.1" data-to="0.25">
+        <h2>Your classes stay put</h2>
+        <p>This is Alex’s demo week. Every hatched block is a class, and every dashed space is free time.</p>
+      </div>
+      <div class="beat" data-from="0.29" data-to="0.43">
+        <h2>Sessions rise in the free time</h2>
+        <p>Each tower is one peer session. Each floor is a seat: solid when taken, dashed when open.</p>
+      </div>
+      <div class="beat" data-from="0.47" data-to="0.59">
+        <h2>Regression, Saturday 13:00</h2>
+        <p>Kevin teaches it online, after your class ends at 11:00. Rp25.000 a seat.</p>
+        <div class="beat__seats"><span class="cells" aria-hidden="true"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i><i></i></span>3 of 8 seats left</div>
+      </div>
+      <div class="beat" data-from="0.6" data-to="0.74">
+        <h2>Pay by QRIS and your seat drops in</h2>
+        <p>Yellow means it’s yours. In this demo, no money is charged.</p>
+        <div class="beat__seats"><span class="cells" aria-hidden="true"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f me"></i><i></i><i></i></span>Your seat is booked, 2 left</div>
+      </div>
+      <div class="beat beat--final" data-from="0.84" data-to="1">
+        <div><h2>Back to your real timetable</h2><p>The same week, laid flat, with your seat in yellow.</p></div>
+        <a class="btn btn--primary" href="app/">Find a session</a>
+      </div>
+      <div class="grand__live" data-grand-live></div>
+    </div>
+  </section>
+
+  <section class="section" id="week" aria-labelledby="week-h">
+    <div class="wrap">
+      <div class="grid week-head">
+        <h2 class="span-5" id="week-h">Sessions that fit between your classes</h2>
+        <div class="span-6 start-7">
+          <p>Your classes stay in place. Sessions that fit appear between them, so you can see what works before you pay. Pick a block to open it.</p>
+        </div>
+      </div>
+      <div class="ui ui-week wk fill" id="wk" data-week>
+        <div class="wk__main">
+          <div class="wk__bar"><b>Alex’s week</b><span>Demo · 23 to 29 Nov</span>
+            <span class="wk__key"><i class="cobalt"></i>Machine Learning<i class="tomato"></i>Calculus<i class="teal"></i>Programming<i class="sun"></i>Booked<i class="k-class"></i>Class</span>
+          </div>
+          <div class="wk__grid" data-week-grid></div>
+          <div class="wd" data-week-day></div>
+        </div>
+        <aside class="wk__pane" data-week-pane aria-live="polite"></aside>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="mentors" aria-labelledby="mentors-h">
+    <div class="wrap">
+      <div class="grid grid--top mentors">
+        <div class="span-5 mentors__text">
+          <h2 id="mentors-h">Mentors who passed your course at BINUS</h2>
+          <p>A student who sat the same exam knows which topics cost marks. Each session names its course, its mentor, what you will practise and what to bring.<span class="only-phone"> Starting around Kemanggisan, Alam Sutera, Bekasi and Senayan.</span></p>
+          <ul class="rows mentors__rows">
+            <li><span class="rows__name">Small groups</span><span class="rows__value">6 to 10 seats</span></li>
+            <li><span class="rows__name">Session length</span><span class="rows__value">60 to 90 minutes</span></li>
+            <li><span class="rows__name">Where</span><span class="rows__value">Google Meet or campus</span></li>
+          </ul>
+        </div>
+        <div class="span-6 start-7 sheet" role="img" aria-label="A session page: Derivatives Made Clear with mentor Nadia, Sunday at 10:00 in Study Room A, four of six seats left">
+          <div class="sheet__band tomato"><b class="ln-time">10:00</b><div><strong>Derivatives Made Clear</strong><span>Calculus · Sunday 29 Nov · Study Room A</span></div></div>
+          <div class="sheet__body">
+            <div class="sheet__who"><span class="sheet__av">N</span><div><b>Nadia Putri</b><span>Peer mentor · Mathematics, 2022</span></div><em class="demo-tag">Demo session</em></div>
+            <p class="sheet__quote">Work through derivatives with a small group, ask questions, and practise solving problems together.</p>
+            <div class="sheet__learn"><b>What you’ll learn</b>
+              <span><i></i>Apply the power, product and quotient rules</span>
+              <span><i></i>Use the chain rule with confidence</span>
+              <span><i></i>Solve exam-style derivative problems</span>
+            </div>
+            <div class="sheet__learn sheet__prep"><b>Come prepared</b>
+              <span><i></i>Familiarity with basic algebra and functions</span>
+              <span><i></i>Your lecture notes, a notebook and a pen</span>
+            </div>
+            <div class="sheet__foot"><span class="cells"><i class="f"></i><i class="f"></i><i></i><i></i><i></i><i></i></span><span>4 of 6 seats left</span><b>Rp30.000</b></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="booking" aria-labelledby="booking-h">
+    <div class="wrap">
+      <div class="section-head"><h2 id="booking-h">From free gap to booked in 3 steps</h2></div>
+      <ol class="flow" data-visual>
+        <li class="flow__step">
+          <div class="flow__vis" role="img" aria-label="Regression at 13:00, in its course colour, selected in the free gap after a class">
+            <div class="flow__class"><b>COMP6047</b><span>Your class, until 11:00</span></div>
+            <div class="flow__gap">
+              <div class="ln-mini cobalt is-picked"><b class="ln-time">13:00</b><span>Regression Finally Makes Sense</span></div>
+              <div class="flow__line"><span class="cells" aria-hidden="true"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i><i></i></span><b>Rp25.000</b></div>
+            </div>
+          </div>
+          <h3><span class="flow__n">1</span> Pick a session in your gap</h3>
+          <p>Each block shows the time, topic, seats and price.</p>
+        </li>
+        <li class="flow__step">
+          <div class="flow__vis" role="img" aria-label="The same session with a demo QRIS code for Rp25.000. The code is not payable.">
+            <div class="flow__class"><b>COMP6047</b><span>Your class, until 11:00</span></div>
+            <div class="flow__gap">
+              <div class="ln-mini cobalt"><b class="ln-time">13:00</b><span>Regression Finally Makes Sense</span></div>
+              <div class="flow__qr"><div data-qr></div><div><b class="ln-time">Rp25.000</b><em class="demo-tag">Demo code, not payable</em></div></div>
+            </div>
+          </div>
+          <h3><span class="flow__n">2</span> Pay for the session by QRIS</h3>
+          <p>In the real product, scan the code with any banking or e-wallet app.</p>
+        </li>
+        <li class="flow__step">
+          <div class="flow__vis" role="img" aria-label="The same session, now yellow and booked in the free gap">
+            <div class="flow__class"><b>COMP6047</b><span>Your class, until 11:00</span></div>
+            <div class="flow__gap">
+              <div class="ln-mini sun"><b class="ln-time">13:00</b><span>Regression Finally Makes Sense</span></div>
+              <div class="flow__line"><span>Booked · Google Meet</span></div>
+            </div>
+          </div>
+          <h3><span class="flow__n">3</span> Find the session in your timetable</h3>
+          <p>Your booking turns yellow, with the room or Meet link.</p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="section ground-inverse" id="teach" aria-labelledby="teach-h">
+    <div class="wrap">
+      <div class="grid grid--top teach">
+        <div class="span-5">
+          <h2 id="teach-h">Keep 80% of every booking</h2>
+          <p class="teach__lead">Good at a course? Host a small group online or in a study room. LearNect takes 20% only when a paid session is completed.</p>
+          <a class="link" href="app/#host">Start hosting</a>
+        </div>
+        <div class="span-6 start-7 ledger" role="img" aria-label="Example: six students at Rp25.000 is Rp150.000. The mentor keeps Rp120.000 and LearNect takes Rp30.000.">
+          <div class="ledger__blk"><b class="ln-time">13:00</b><div><strong>Regression Finally Makes Sense</strong><span>6 students × Rp25.000</span></div></div>
+          <div class="ledger__seats" aria-hidden="true"><span class="cells"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i></span><span>6 of 8 seats booked</span><b class="ln-time">Rp150.000</b></div>
+          <div class="ledger__split" aria-hidden="true"><span class="is-you">Your 80%</span><span class="is-us">20%</span></div>
+          <div class="ledger__sum" data-moment="counter-rolls">
+            <div class="stat"><p class="t-stat">Rp120.000</p><p class="t-small">Your 80% as the mentor</p></div>
+            <div class="stat"><p class="t-stat">Rp30.000</p><p class="t-small">LearNect’s 20%</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="questions" aria-labelledby="questions-h">
+    <div class="wrap">
+      <div class="grid grid--top">
+        <div class="span-5 stack-4">
+          <h2 id="questions-h">Questions</h2>
+          <p class="muted">Prices, refunds and what works today.</p>
+          <div class="refund" role="img" aria-label="Refund rule: cancel until 24 hours before the session for a full refund; in the last 24 hours there is no refund.">
+            <span class="refund__ok"><b>Full refund</b>Until 24 hours before</span>
+            <span class="refund__no"><b>No refund</b>Last 24 hours</span>
+          </div>
+        </div>
+        <div class="span-6 start-7 faq">
+          <div class="faq__item"><h3>Can I book a real session today?</h3><p>Not yet. LearNect is a student venture. The demo for the 25 November 2026 showcase uses made-up people and takes no real payment.</p></div>
+          <div class="faq__item"><h3>How much does a session cost?</h3><p>Rp20.000 to Rp30.000 per person, shown on every session.</p></div>
+          <div class="faq__item"><h3>What if a session is cancelled?</h3><p>Cancel at least 24 hours before for a full refund. Later cancellations are non-refundable. If your mentor cancels, you get a full refund.</p></div>
+          <div class="faq__item faq__item--wide"><h3>Who can teach on LearNect?</h3><p>BINUS students who apply and are approved. Mentors keep 80% of each completed booking.</p></div>
+          <div class="faq__item"><h3>Does LearNect read my KRS?</h3><p>Not yet. The demo uses a filled-in class schedule for one student, Alex.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer closing footer--dark ground-inverse" id="contact" aria-labelledby="close-h">
+  <div class="wrap">
+    <div class="closing__cta close--type">
+      <div class="section-head">
+        <h2 id="close-h">See what fits your free Saturday</h2>
+        <p>Opens Alex’s week. No account and no payment.</p>
+      </div>
+      <a class="btn btn--primary btn--xl" href="app/">Find a session<svg class="m-arrow" viewBox="0 0 12 12" aria-hidden="true"><path class="m-arrow__stem" d="M1 6h8"/><path class="m-arrow__head" d="M4.5 2.5 8 6l-3.5 3.5"/></svg></a>
+    </div>
+    <div class="closing__links">
+      <div class="grid">
+        <div class="span-4 stack-4">
+          <a class="nav__logo footer__name" href="#top"><img class="ln-logo" src="assets/brand/logo-on-navy.svg?v=2" alt="" width="44" height="44">LearNect</a>
+        </div>
+        <div class="span-2 start-7 footer__col"><h3>Learn</h3><ul><li><a href="#week">Your week</a></li><li><a href="#booking">Booking</a></li></ul></div>
+        <div class="span-2 footer__col"><h3>Teach</h3><ul><li><a href="#teach">Earnings</a></li><li><a href="#mentors">Mentors</a></li></ul></div>
+        <div class="span-2 footer__col"><h3>Help</h3><ul><li><a href="#questions">Questions</a></li></ul></div>
+      </div>
+      <div class="footer__legal"><span>&copy; 2026 LearNect, a BINUS student venture</span></div>
+    </div>
+  </div>
+</footer>
+
+<script src="../demo/js/data.js?v=8"></script>
+<script src="js/week.js?v=2"></script>
+<script src="js/grand.js?v=14"></script>
+<script type="module" src="assets/system.js"></script>
+<script type="module" src="assets/motion/motion.js"></script>
+<script type="module" src="assets/layout/layout.js"></script>
+</body>
+</html>

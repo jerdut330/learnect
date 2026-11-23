@@ -1,0 +1,84 @@
+/* The grand opening and the page rhythm around it. Class Timetable rules still apply:
+   course colours mean courses, sun means your booking, and reading text never sits on the grid. */
+
+:root { --grand-ease: cubic-bezier(.23, 1, .32, 1); --grand-edge: max(24px, calc((100vw - 1320px) / 2)); }
+
+main > section.grand.grand { display: block; height: auto; min-height: 0; padding: 0; overflow: visible; background: var(--navy); color: var(--paper); }
+.grand ::selection { background: var(--paper); color: var(--navy); }
+.grand__stage { position: relative; padding: 112px var(--grand-edge) 48px; }
+.grand canvas { display: none; }
+.beat { max-width: 560px; margin-bottom: 32px; }
+.beat h2 { margin: 0; color: var(--paper); font-size: clamp(30px, 3vw, 44px); line-height: 1.04; letter-spacing: -.03em; }
+.beat p { margin: 12px 0 0; color: #C9CEDF; font-size: 18px; line-height: 1.45; }
+.beat .btn { margin-top: 20px; }
+.beat__seats { display: flex; align-items: center; gap: 12px; margin-top: 16px; color: var(--paper); font-size: 15px; font-weight: 700; }
+.beat__seats .cells i { width: 14px; height: 14px; }
+.beat__seats .cells i.me { color: var(--sun); }
+
+.beat--hero { max-width: none; }
+.beat--hero h1 { max-width: 12ch; margin: 0; color: var(--paper); font-size: clamp(52px, 8.5vw, 136px); line-height: .94; letter-spacing: -.04em; text-wrap: balance; }
+.beat--hero .grand__lead { max-width: 440px; margin-top: 24px; color: var(--paper); font-size: clamp(17px, 1.4vw, 20px); }
+.grand__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 24px; }
+.grand .btn--primary { background: var(--paper); color: var(--navy); }
+html .grand .btn.btn--primary:hover, html .footer--dark .btn.btn--primary:hover { background: #fff; color: var(--navy); }
+.grand__see { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; color: var(--paper); font-weight: 700; text-decoration: underline; text-underline-offset: 4px; }
+.grand__see:focus-visible, .grand .btn:focus-visible { outline: 3px solid var(--paper); outline-offset: 2px; }
+
+.grand.is-static canvas { display: block; width: 100%; height: 60vh; }
+.grand.is-static .grand__stage { display: flex; flex-direction: column; }
+
+.grand-live main > section.grand.grand { height: 760vh; }
+.grand-live:not(.grand-ready) .grand .beat { transition: none; }
+.grand-live .grand .grand__stage { position: sticky; top: 0; height: 100vh; height: 100svh; padding: 0; overflow: hidden; }
+.grand-live .grand canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.grand-live .grand .beat { position: absolute; z-index: 2; left: var(--grand-edge); bottom: 40px; width: min(460px, 36vw); margin: 0; padding: 28px; border: 1.5px solid rgba(251, 251, 247, .32); border-radius: 10px; background: var(--navy); opacity: 0; visibility: hidden; transform: translateY(12px); transition: opacity 220ms ease-out, transform 360ms var(--grand-ease), visibility 0s linear 220ms; }
+.grand-live .grand .beat.is-on { opacity: 1; visibility: visible; transform: none; transition-delay: 0s; }
+.grand-live .grand .beat--hero { top: clamp(88px, 12vh, 120px); bottom: auto; width: auto; max-width: 62vw; padding: 0; border: 0; background: transparent; pointer-events: none; }
+.grand-live .grand .beat--hero a { pointer-events: auto; }
+
+/* The end of the flight: the canvas lands exactly on the live timetable */
+.grand__live { display: none; }
+.grand-moved { display: none !important; }
+.grand-live .grand.has-live .grand__live { position: absolute; z-index: 3; left: var(--grand-edge); right: var(--grand-edge); top: 176px; bottom: 24px; display: block; opacity: 0; visibility: hidden; transition: opacity 240ms ease-out, visibility 0s linear 240ms; }
+.grand-live .grand.has-live .grand__live.is-on { opacity: 1; visibility: visible; transition-delay: 0s; }
+.grand__live .wk.ui { height: 100%; margin-top: 0; }
+.grand__live .wk__pane { overflow-y: auto; }
+.grand-live .grand.has-live .beat--final { top: 88px; right: var(--grand-edge); bottom: auto; display: flex; align-items: center; justify-content: space-between; gap: 32px; width: auto; max-width: none; min-height: 72px; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.grand-live .grand.has-live .beat--final h2 { font-size: 32px; }
+.grand-live .grand.has-live .beat--final p { margin-top: 4px; font-size: 16px; }
+.grand-live .grand.has-live .beat--final .btn { display: none; }
+@media (max-height: 680px) { .grand__live .pn__learn { display: none; } }
+
+/* The sections after the opening take the height of their content */
+main > section.section.section:not(.grand) { height: auto; min-height: 0; padding-block: clamp(72px, 8vw, 120px); }
+main > section.section.section:not(.grand) > .wrap { height: auto; }
+footer.closing.closing { height: auto; min-height: 0; padding-block: clamp(72px, 8vw, 120px) 32px; }
+footer.closing.closing > .wrap { height: auto; }
+.closing__cta.close--type > .btn--xl.btn--xl:not(.btn--wide) { align-self: flex-start; width: fit-content; min-height: 64px; padding-inline: 32px; font-size: 22px; }
+@media (min-width: 640px) { #week .wk.ui { height: 640px; flex: none; } }
+
+.flow__step > h3 { margin-top: 20px; }
+.flow__n { margin-right: 4px; color: var(--p-muted); }
+
+#teach .ledger__seats { display: flex; align-items: center; gap: 12px; font-size: 15px; font-weight: 600; }
+#teach .ledger__seats .cells i { display: block; width: 16px; height: 16px; border-radius: 2px; background: transparent; color: var(--paper); }
+#teach .ledger__seats .cells i.f { background: currentColor; }
+#teach .ledger__seats b { margin-left: auto; font-size: 24px; }
+#teach .ledger__split span { display: flex; align-items: center; height: 44px; padding: 0 12px; font-size: 14px; font-weight: 700; white-space: nowrap; }
+#teach .ledger__split .is-you { color: var(--navy); }
+#teach .ledger__split .is-us { color: var(--paper); }
+
+@media (max-width: 819px) {
+  .grand-live .grand .beat { left: 16px; right: 16px; bottom: 16px; width: auto; padding: 20px; }
+  .grand-live .grand .beat h2 { font-size: 28px; }
+  .grand-live .grand .beat p { font-size: 16px; }
+  .grand-live .grand .beat--hero { top: 84px; bottom: auto; max-width: none; padding: 0; }
+  .beat--hero h1 { font-size: clamp(44px, 14vw, 72px); }
+  .beat--hero .grand__lead { margin-top: 16px; font-size: 16px; }
+  .grand__actions { margin-top: 16px; }
+}
+@media (max-height: 720px) and (min-width: 820px) {
+  .beat--hero h1 { font-size: clamp(52px, 6.6vw, 96px); }
+  .beat--hero .grand__lead { margin-top: 16px; }
+  .grand__actions { margin-top: 16px; }
+}
