@@ -812,6 +812,8 @@
         // Offline: start the demo again. With accounts: sign out, so the next visitor starts clean.
         state = fresh(); appErr = {}; nwErr = ''; authErr = ''; authNote = '';
         (API ? API.signOut().then(function () { clearServerState(); save(); return sync(true); }).catch(function () {}) : Promise.resolve()).then(function () {
+          // Signing out from a private page briefly redirects to Sign in; don't send the next person back there.
+          state.after = null;
           save(); if (location.hash === '#week' || !location.hash) render({ moved: true }); else location.hash = '#week';
         });
         break;
