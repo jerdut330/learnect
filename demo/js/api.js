@@ -29,6 +29,7 @@ window.LN_API = (function () {
     if (/Anonymous sign-ins are disabled/i.test(m)) m = 'Guest access is turned off. Create an account instead.';
     if (/Password should be at least/i.test(m)) m = 'Use a password of at least 6 characters.';
     if (/Email not confirmed/i.test(m)) m = 'Confirm your email first, using the link we sent you.';
+    if (/foreign key constraint|JWT|not authorized|User from sub claim/i.test(m)) m = 'Your sign-in has expired. Sign out from Profile, then sign in again.';
     var e = new Error(m); e.cause = err; throw e;
   }
   function ok(res) { if (res.error) fail(res.error); return res.data; }
@@ -38,7 +39,15 @@ window.LN_API = (function () {
   }
 
   api.init = function () {
-    return withTimeout(libReady.then(function () { return sb.auth.getSession(); }), 10000).then(function (res) {
+    return withTimeout(libReady.then(function () { return sb.auth.getSession(); }).then(function (res) {
+      if (!(res.data && res.data.session)) return res;
+      // A saved sign-in can outlive its account (for example after the showcase reset), so check it with the server.
+      return sb.auth.getUser().then(function (u) {
+        var gone = u.error ? (u.error.status === 401 || u.error.status === 403 || /sub claim|not exist|not found/i.test(u.error.message || '')) : !(u.data && u.data.user);
+        if (gone) return sb.auth.signOut({ scope: 'local' }).catch(function () {}).then(function () { return { data: { session: null } }; });
+        return res;
+      });
+    }), 10000).then(function (res) {
       api.user = res.data && res.data.session ? res.data.session.user : null;
       sb.auth.onAuthStateChange(function (ev, session) {
         var next = session ? session.user : null;
