@@ -21,6 +21,81 @@
   })();
   function save() { try { sessionStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
 
+  /* ---------- Backend (Supabase, see api.js). With no backend configured, everything stays in this tab. ---------- */
+  var API = window.LN_API, EXTRA = [], CODES = {}, busy = false, SAMPLE = D.sessions.slice();
+  function signedIn() { return !!(API && API.user); }
+  function me() {
+    if (!API) return D.user;
+    var p = API.profile || {}, guest = !!(API.user && API.user.is_anonymous);
+    var full = p.full_name || (guest ? 'Guest' : 'LearNect student');
+    return { full: full, name: full.split(' ')[0], major: p.major || 'Computer Science', campus: p.campus || 'Kemanggisan', guest: guest };
+  }
+  // Bookings, applications, hosting and ratings belong to the account, so never trust a copy left in the tab.
+  function clearServerState() {
+    state.booked = {}; state.cancelled = {}; state.refunds = {}; state.role = 'none'; state.hosted = []; CODES = {};
+    Object.keys(state.ratings).forEach(function (k) { if (state.ratings[k].sent) delete state.ratings[k]; });
+  }
+  function fromRow(r, counts, mine) {
+    var taken = counts.hasOwnProperty(r.id) ? counts[r.id] : r.base_booked, mentor = r.mentor;
+    if (!mentor || !D.mentors[mentor]) {
+      var full = r.host_name || 'Student mentor';
+      mentor = 'u:' + r.host_id;
+      D.mentors[mentor] = { id: mentor, name: full.split(' ')[0], full: full, major: 'Student mentor', rating: null, sessions: 0, initial: full.charAt(0).toUpperCase(), quote: '' };
+    }
+    return { id: r.id, course: r.course, mentor: mentor, day: r.day, start: r.start_t, end: r.end_t, price: r.price, seats: r.seats,
+      booked: Math.max(0, taken - (mine ? 1 : 0)), title: r.title, format: r.format, blurb: r.blurb, learn: r.learn || [], bring: r.bring || [] };
+  }
+  function applyServer(d) {
+    var uid = API.user && API.user.id, mine = {}, list = [], extra = [], hostedList = [];
+    clearServerState();
+    var week = d.bookings.filter(function (b) { return b.week_start === D.WEEK_START; });
+    week.forEach(function (b) { if (b.status === 'booked') { state.booked[b.session_id] = true; mine[b.session_id] = true; CODES[b.session_id] = b.code; } });
+    week.forEach(function (b) { if (b.status === 'cancelled' && !mine[b.session_id]) { state.cancelled[b.session_id] = true; state.refunds[b.session_id] = b.refunded; } });
+    d.sessions.forEach(function (r) {
+      if (r.week_start && r.week_start !== D.WEEK_START) return; // a hosted session from another week
+      if (uid && r.host_id === uid) {
+        if (r.status === 'live') hostedList.push({ id: r.id, course: r.course, title: r.title, day: r.day, start: r.start_t, end: r.end_t, price: r.price, seats: r.seats,
+          booked: d.counts.hasOwnProperty(r.id) ? d.counts[r.id] : r.base_booked, type: r.format.type, place: r.format.place });
+        return;
+      }
+      (r.listed && r.status === 'live' ? list : extra).push(fromRow(r, d.counts, mine[r.id]));
+    });
+    D.sessions = list; EXTRA = extra; state.hosted = hostedList;
+    state.role = d.profile ? d.profile.role : 'none';
+    if (d.profile && d.profile.prefs) state.prefs = d.profile.prefs;
+    if (d.application) { var a = d.application; state.app = { campus: a.campus, courses: a.courses, gpa: String(a.gpa), transcript: a.transcript, why: a.why, format: a.format, confirm: true }; }
+    d.ratings.forEach(function (r) { state.ratings[r.past_id] = { stars: r.stars, tags: r.tags, note: r.note, sent: true }; });
+    save();
+  }
+  // Pull the latest from the server. Quiet syncs only redraw what can't disturb someone mid-task.
+  function sync(quiet) {
+    if (!API) return Promise.resolve();
+    return API.load().then(function (d) { applyServer(d); quiet ? softRefresh() : render({ keepScroll: true }); });
+  }
+  function softRefresh() {
+    var a = document.activeElement, typing = a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.id !== 'q';
+    if (busy || app.querySelector('.scrim') || typing) return;
+    if (['home', 'explore', 's', 'sessions', 'host', 'earnings', 'manage', 'notifications', 'profile'].indexOf(current.name) >= 0) render({ keepScroll: true });
+  }
+  function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function working(btn, label) { busy = true; if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin" aria-hidden="true"></span>' + esc(label); } }
+  function notice(title, msg) {
+    busy = false;
+    var old = app.querySelector('.scrim'); if (old && old.parentNode) old.parentNode.removeChild(old);
+    var wrap = document.createElement('div');
+    wrap.className = 'scrim';
+    wrap.innerHTML = '<div class="sheet" role="alertdialog" aria-modal="true" aria-labelledby="notice-title"><span class="grab" aria-hidden="true"></span>' +
+      '<h2 id="notice-title">' + esc(title) + '</h2><p>' + esc(msg) + '</p>' +
+      '<button class="btn btn-primary btn-block" type="button" data-act="sheet-close">OK</button></div>';
+    app.appendChild(wrap);
+    requestAnimationFrame(function () { wrap.classList.add('open'); });
+    wrap.addEventListener('click', function (e) { if (e.target === wrap) closeSheet(); });
+    wrap.querySelector('[data-act="sheet-close"]').focus();
+  }
+  function failed(title) {
+    return function (e) { render({ keepScroll: true }); notice(title, e.message); sync(true).catch(function () {}); };
+  }
+
   /* ---------- Helpers ---------- */
   var DAY_S = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   var DAY_L = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -37,7 +112,8 @@
   function rp(n) { return 'Rp' + String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
   function rpShort(n) { return 'Rp' + Math.round(n / 1000) + 'k'; }
 
-  function S(id) { for (var i = 0; i < D.sessions.length; i++) if (D.sessions[i].id === id) return D.sessions[i]; return null; }
+  function all() { return D.sessions.concat(EXTRA); }
+  function S(id) { var l = all(); for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i]; return null; }
   function C(s) { return D.courses[s.course]; }
   function M(s) { return D.mentors[s.mentor]; }
   function isBooked(s) { return !!state.booked[s.id]; }
@@ -61,7 +137,7 @@
     return hit;
   }
   function blockColour(s) { return isBooked(s) ? 'sun' : (isFull(s) ? 'full' : C(s).colour); }
-  function bookingCode(s) { var h = 0; for (var i = 0; i < s.id.length; i++) h = (h * 31 + s.id.charCodeAt(i)) % 9000; return 'LN-' + (1000 + h); }
+  function bookingCode(s) { if (CODES[s.id]) return CODES[s.id]; var h = 0; for (var i = 0; i < s.id.length; i++) h = (h * 31 + s.id.charCodeAt(i)) % 9000; return 'LN-' + (1000 + h); }
 
   function cells(s, lg) {
     var out = '<span class="cells' + (lg ? ' lg' : '') + '" aria-hidden="true">';
@@ -108,7 +184,7 @@
     }).join('') + '</nav>';
   }
   function topBrand() {
-    return '<header class="top pad"><div class="brand"><img src="assets/logo.svg?v=2" alt="">LearNect<span class="demo-mark">Demo · sample data</span></div>' +
+    return '<header class="top pad"><div class="brand"><img src="assets/logo.svg?v=2" alt="">LearNect<span class="demo-mark">' + (API ? 'Demo · simulated QRIS' : 'Demo · sample data') + '</span></div>' +
       '<a class="icon-btn" href="#notifications" aria-label="Notifications">' + ic('bell') + '</a></header>';
   }
   function bar(title, left, right) {
@@ -207,7 +283,7 @@
 
     var ttHeight = (w1 - w0) / 30 * ROW;
     var body =
-      '<div class="pad greet"><h1 class="title-xl" tabindex="-1">Hi, ' + esc(D.user.name) + '</h1><p class="sub">' + subline + '</p></div>' +
+      '<div class="pad greet"><h1 class="title-xl" tabindex="-1">Hi, ' + esc(API && !signedIn() ? 'there' : me().name) + '</h1><p class="sub">' + subline + '</p></div>' +
       strip +
       '<div class="pad">' +
       '<div class="dayhead"><h2>' + longDate(day) + '</h2><span>' + (headLabel || (cls.length ? 'Your classes' : 'No classes')) + '</span></div>' +
@@ -315,8 +391,8 @@
       '<div class="sec"><h2>Where</h2></div>' +
       '<div class="card place"><span class="ic">' + place + '</span><div><b>' + esc(s.format.place) + '</b><p>' + esc(s.format.detail) + '</p></div></div>' +
       '<div class="sec"><h2>Your mentor</h2></div>' +
-      '<div class="card"><div class="mentor"><span class="avatar" aria-hidden="true">' + m.initial + '</span><div><b>' + esc(m.full) + '</b><div class="meta">Peer mentor · ' + esc(m.major) + '</div><div class="meta num">' + ic('star').replace('<svg', '<svg width="14" height="14" style="vertical-align:-2px"') + ' ' + m.rating.toFixed(1) + ' · ' + m.sessions + ' sessions taught</div></div></div>' +
-      '<p class="quote">“' + esc(m.quote) + '”</p></div>' +
+      '<div class="card"><div class="mentor"><span class="avatar" aria-hidden="true">' + m.initial + '</span><div><b>' + esc(m.full) + '</b><div class="meta">Peer mentor · ' + esc(m.major) + '</div><div class="meta num">' + (m.rating ? ic('star').replace('<svg', '<svg width="14" height="14" style="vertical-align:-2px"') + ' ' + m.rating.toFixed(1) + ' · ' + m.sessions + ' sessions taught' : 'New mentor on LearNect') + '</div></div></div>' +
+      (m.quote ? '<p class="quote">“' + esc(m.quote) + '”</p>' : '') + '</div>' +
       '<div class="sec"><h2>What you’ll learn</h2></div><ul class="checks">' + s.learn.map(function (l) { return '<li><span class="box">' + ic('check') + '</span>' + esc(l) + '</li>'; }).join('') + '</ul>' +
       '<div class="sec"><h2>Come prepared</h2></div><ul class="checks plain">' + s.bring.map(function (l) { return '<li><span class="box"></span>' + esc(l) + '</li>'; }).join('') + '</ul>' +
       '<div class="sec"><h2>Before you book</h2></div><div class="note">' + ic('info') + '<span>' + esc(D.refundRule) + '</span></div>' +
@@ -410,9 +486,9 @@
 
   /* ---------- My Sessions ---------- */
   function sessions() {
-    var up = D.sessions.filter(function (s) { return isBooked(s) && !ended(s); }).sort(function (a, b) { return a.day - b.day || mins(a.start) - mins(b.start); });
-    var finished = D.sessions.filter(function (s) { return isBooked(s) && ended(s); });
-    var can = D.sessions.filter(function (s) { return state.cancelled[s.id] && !isBooked(s); });
+    var up = all().filter(function (s) { return isBooked(s) && !ended(s); }).sort(function (a, b) { return a.day - b.day || mins(a.start) - mins(b.start); });
+    var finished = all().filter(function (s) { return isBooked(s) && ended(s); });
+    var can = all().filter(function (s) { return state.cancelled[s.id] && !isBooked(s); });
     var tabs = [['upcoming', 'Upcoming (' + up.length + ')'], ['past', 'Past'], ['cancelled', 'Cancelled' + (can.length ? ' (' + can.length + ')' : '')]];
     var body = '';
     if (state.mytab === 'upcoming') {
@@ -565,11 +641,11 @@
       return '<button type="button" class="chip" aria-pressed="' + (a.courses.indexOf(k) >= 0) + '" data-act="ap-course" data-v="' + k + '"><i style="background:var(--' + D.courses[k].colour + ')"></i>' + esc(D.courses[k].name) + '</button>';
     }).join('') + '</div>';
     var transcript = a.transcript
-      ? '<div class="file-row">' + ic('check') + '<span><b>Transcript_Alex.pdf</b><small>Sample file for this demo</small></span><button class="link-btn" type="button" data-act="ap-transcript">Remove</button></div>'
+      ? '<div class="file-row">' + ic('check') + '<span><b>Transcript_' + esc(me().name) + '.pdf</b><small>Sample file for this demo</small></span><button class="link-btn" type="button" data-act="ap-transcript">Remove</button></div>'
       : '<button class="btn btn-secondary btn-block" id="ap-transcript" type="button" data-act="ap-transcript">Attach sample transcript</button>';
     return '<div class="screen">' + bar('Apply to teach', backBtn()) + '<form class="pad form-stack" id="apply-form" novalidate>' +
       '<p class="sub">We review every application before you can publish sessions.</p>' +
-      field('ap-name', 'Full name', '<input id="ap-name" value="' + esc(D.user.full) + '" readonly aria-readonly="true">', null, 'From your LearNect account') +
+      field('ap-name', 'Full name', '<input id="ap-name" value="' + esc(me().full) + '" readonly aria-readonly="true">', null, 'From your LearNect account') +
       field('ap-campus', 'Campus', '<select id="ap-campus" data-ap="campus">' + D.campuses.map(function (c) { return '<option' + (c === a.campus ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('') + '</select>') +
       '<div class="field' + (appErr.courses ? ' has-err' : '') + '"><span class="flabel">Courses you can teach</span>' + courses + (appErr.courses ? '<p class="err">' + ic('warn') + '<span>' + appErr.courses + '</span></p>' : '') + '</div>' +
       field('ap-gpa', 'GPA', '<input id="ap-gpa" data-ap="gpa" inputmode="decimal" autocomplete="off" value="' + esc(a.gpa) + '"' + (appErr.gpa ? ' aria-invalid="true" aria-describedby="ap-gpa-err"' : '') + '>', appErr.gpa) +
@@ -594,6 +670,12 @@
       var first = app.querySelector('.has-err'); if (first) { first.scrollIntoView({ block: 'center' }); var f = first.querySelector('input, textarea, select, button'); if (f) f.focus({ preventScroll: true }); }
       return;
     }
+    if (API) {
+      if (busy) return;
+      working(app.querySelector('[data-act="ap-submit"]'), 'Submitting…');
+      API.apply(a).then(function () { return sync(true); }).then(function () { busy = false; location.hash = '#applied'; }).catch(failed('Application not sent'));
+      return;
+    }
     state.role = 'review'; save(); location.hash = '#applied';
   }
   function applied() {
@@ -603,7 +685,7 @@
       '<div class="pad done-hero"><p class="title-xl">' + (ok ? 'You’re approved' : 'Application submitted') + '</p><p class="sub">' + (ok ? 'You can publish sessions from the Host tab.' : 'We’ll notify you when your status changes. You can keep booking sessions meanwhile.') + '</p></div>' +
       '<div class="pad"><div class="card">' +
       '<div class="row-line"><span class="k">Status</span><span><b>' + (ok ? 'Approved' : 'Under review') + '</b></span></div>' +
-      '<div class="row-line"><span class="k">Applicant</span><span>' + esc(D.user.full) + '</span></div>' +
+      '<div class="row-line"><span class="k">Applicant</span><span>' + esc(me().full) + '</span></div>' +
       '<div class="row-line"><span class="k">Campus</span><span style="text-align:right">' + esc(a.campus) + '</span></div>' +
       '<div class="row-line"><span class="k">Courses</span><span style="text-align:right">' + a.courses.map(function (c) { return esc(D.courses[c].name); }).join(', ') + '</span></div>' +
       '<div class="row-line"><span class="k">GPA</span><span>' + esc(a.gpa) + '</span></div></div>' +
@@ -665,13 +747,23 @@
     if (!n.title.trim()) { nwErr = 'Give your session a title.'; render({ keepScroll: true }); var i = document.getElementById('nw-title'); if (i) i.focus(); return; }
     if (nwClash()) return;
     nwErr = '';
+    function next() {
+      state.nw = JSON.parse(JSON.stringify(D.newSessionSeed)); state.nw.title = ''; state.hostTab = 'upcoming';
+      // Open the next new session on a slot that is still free.
+      for (var t = mins(state.nw.start); t <= 20 * 60 && nwClash(); t += 30) state.nw.start = hhmm(t);
+      busy = false; save();
+      location.hash = '#host';
+    }
+    if (API) {
+      if (busy) return;
+      working(app.querySelector('[data-act="nw-publish"]'), 'Publishing…');
+      API.publish({ course: n.course, title: n.title.trim(), day: n.day, start: n.start, len: n.len, format: n.format, seats: n.seats, price: n.price })
+        .then(function () { return sync(true); }).then(next).catch(failed('Session not published'));
+      return;
+    }
     state.hosted.push({ id: 'h-' + Date.now(), course: n.course, title: n.title.trim(), day: n.day, start: n.start, end: hhmm(nwEnd()), price: n.price, seats: n.seats, booked: 0,
       type: n.format, place: n.format === 'online' ? 'Google Meet' : 'Study Room, ' + state.app.campus.split(' (')[0] + ' Campus' });
-    state.nw = JSON.parse(JSON.stringify(D.newSessionSeed)); state.nw.title = ''; state.hostTab = 'upcoming';
-    // Open the next new session on a slot that is still free.
-    for (var t = mins(state.nw.start); t <= 20 * 60 && nwClash(); t += 30) state.nw.start = hhmm(t);
-    save();
-    location.hash = '#host';
+    next();
   }
 
   /* ---------- Manage a session, earnings ---------- */
@@ -753,13 +845,14 @@
         : '<div class="card mentor-card"><b>Want to teach?</b><p class="sub">Help other students with a course you aced and keep 80% of each booking.</p><a class="btn btn-primary btn-block" href="#host">Become a mentor</a></div>';
     var row = function (href, icon, label) { return '<a class="menu-row" href="' + href + '">' + ic(icon) + '<span>' + label + '</span>' + ic('back').replace('<svg', '<svg class="chev" style="transform:rotate(180deg)"') + '</a>'; };
     return '<div class="screen"><header class="top pad"><h1 class="title-xl" tabindex="-1">Profile</h1></header><div class="pad">' +
-      '<div class="card mentor"><span class="avatar" aria-hidden="true">A</span><div><b>' + esc(D.user.full) + '</b><div class="meta">' + esc(D.user.major) + ' · ' + esc(D.user.campus) + '</div></div></div>' +
+      '<div class="card mentor"><span class="avatar" aria-hidden="true">' + esc(me().full.charAt(0)) + '</span><div><b>' + esc(me().full) + '</b><div class="meta">' + esc(me().major) + ' · ' + esc(me().campus) + '</div></div></div>' +
       '<div class="sec"><h2>My courses</h2></div><div class="chip-wrap">' + Object.keys(D.courses).map(function (k) {
         return '<span class="chip chip-static"><i style="background:var(--' + D.courses[k].colour + ')"></i>' + esc(D.courses[k].name) + '</span>';
       }).join('') + '</div>' +
       '<div class="sec"><h2>Teaching</h2></div>' + teach +
       '<div class="sec"><h2>Account</h2></div><div class="menu-list">' + row('#notifications', 'bell', 'Notifications') + row('#help', 'info', 'Help & support') + '</div>' +
-      '<button class="btn btn-secondary btn-block" style="margin-top:16px" type="button" data-act="reset">Reset demo</button><div style="height:24px"></div></div></div>' + tabbar('profile');
+      (API && me().guest ? '<div class="note" style="margin-top:16px">' + ic('info') + '<span>You’re using LearNect as a guest. Your bookings stay until you sign out.</span></div>' : '') +
+      '<button class="btn btn-secondary btn-block" style="margin-top:16px" type="button" data-act="reset">' + (API ? 'Sign out' : 'Reset demo') + '</button><div style="height:24px"></div></div></div>' + tabbar('profile');
   }
 
   /* ---------- Host, form and rating actions ---------- */
@@ -772,6 +865,12 @@
       case 'ap-transcript': a.transcript = !a.transcript; delete appErr.transcript; again(); return true;
       case 'ap-submit': submitApply(); return true;
       case 'ap-approve':
+        if (API) {
+          if (busy) return true;
+          working(t, 'Approving…');
+          API.approve().then(function () { return sync(true); }).then(function () { busy = false; location.hash = '#host'; }).catch(failed('Not approved'));
+          return true;
+        }
         state.role = 'approved';
         if (!state.hosted.length) state.hosted = JSON.parse(JSON.stringify(D.hostSeed));
         save(); location.hash = '#host'; return true;
@@ -786,13 +885,28 @@
       case 'nw-publish': publish(); return true;
       case 'host-cancel': hostCancelSheet(t.getAttribute('data-id')); return true;
       case 'host-cancel-yes':
+        if (API) {
+          if (busy) return true;
+          var hid = t.getAttribute('data-id');
+          working(t, 'Cancelling…');
+          API.cancelHosted(hid).then(function () { return sync(true); }).then(function () { busy = false; closeSheet(); setTimeout(function () { location.hash = '#host'; }, 200); }).catch(failed('Session not cancelled'));
+          return true;
+        }
         state.hosted = state.hosted.filter(function (h) { return h.id !== t.getAttribute('data-id'); }); save(); closeSheet();
         setTimeout(function () { location.hash = '#host'; }, 200); return true;
       case 'rate-star': case 'rate-tag': case 'rate-send':
         var id = t.getAttribute('data-id'), r = state.ratings[id] || (state.ratings[id] = { stars: 0, tags: [], note: '', sent: false });
         if (act === 'rate-star') r.stars = +v;
         if (act === 'rate-tag') { var x = r.tags.indexOf(v); if (x >= 0) r.tags.splice(x, 1); else r.tags.push(v); }
-        if (act === 'rate-send') r.sent = true;
+        if (act === 'rate-send') {
+          if (API) {
+            if (busy) return true;
+            working(t, 'Sending…');
+            API.rate(id, r).then(function () { busy = false; r.sent = true; again(); }).catch(failed('Rating not sent'));
+            return true;
+          }
+          r.sent = true;
+        }
         again(); return true;
     }
     return false;
@@ -813,15 +927,63 @@
       return true;
     }
     if ((k = el.getAttribute('data-rate'))) { var r = state.ratings[k] || (state.ratings[k] = { stars: 0, tags: [], note: '', sent: false }); r.note = el.value; save(); return true; }
-    if ((k = el.getAttribute('data-pref'))) { state.prefs[k] = el.checked; save(); return true; }
+    if ((k = el.getAttribute('data-pref'))) { state.prefs[k] = el.checked; save(); if (API && API.user) API.prefs(state.prefs).catch(function () {}); return true; }
     return false;
   }
   function notFound() {
     return '<div class="screen">' + bar('Not found', backBtn()) + '<div class="pad"><div class="empty"><b>That session doesn’t exist</b><p>It may have been removed.</p><a class="btn btn-primary" href="#home">Go home</a></div></div></div>';
   }
 
+  /* ---------- Sign in and create account ---------- */
+  var authMode = 'in', authErr = '', authNote = '', authVals = { name: '', email: '' };
+  function signin() {
+    if (!API) { location.replace('#home'); return ''; }
+    if (signedIn()) { var to = state.after || '#home'; state.after = null; save(); location.replace(to); return ''; }
+    var up = authMode === 'up';
+    return '<div class="screen">' + bar(up ? 'Create account' : 'Sign in', backBtn()) + '<div class="pad form-stack">' +
+      '<div class="seg seg-2" role="group" aria-label="Account">' + [['in', 'Sign in'], ['up', 'Create account']].map(function (t) {
+        return '<button type="button" id="au-m-' + t[0] + '" aria-pressed="' + (authMode === t[0]) + '" data-act="auth-mode" data-v="' + t[0] + '">' + t[1] + '</button>';
+      }).join('') + '</div>' +
+      '<form class="form-stack" id="auth-form" novalidate><p class="sub">' + (up ? 'One account to book sessions and to teach the courses you aced.' : 'Sign in to book sessions, see My Sessions and host your own.') + '</p>' +
+      (up ? field('au-name', 'Full name', '<input id="au-name" autocomplete="name" maxlength="60" value="' + esc(authVals.name) + '">') : '') +
+      field('au-email', 'Email', '<input id="au-email" type="email" autocomplete="email" inputmode="email" value="' + esc(authVals.email) + '">') +
+      field('au-pass', 'Password', '<input id="au-pass" type="password" autocomplete="' + (up ? 'new-password' : 'current-password') + '">', authErr, up ? 'At least 6 characters' : '') +
+      (authNote ? '<div class="note">' + ic('info') + '<span>' + esc(authNote) + '</span></div>' : '') +
+      '<button type="submit" hidden></button></form>' +
+      '<div class="demo-box"><span class="demo-flag">Just looking?</span><p>Try every feature without an account. As a guest, your bookings are real seats and stay until you sign out.</p><button class="btn btn-secondary btn-block" type="button" data-act="auth-guest">Continue as guest</button></div>' +
+      '<div style="height:20px"></div></div></div><div class="action pad"><button class="btn btn-primary" type="button" data-act="auth-go">' + (up ? 'Create account' : 'Sign in') + '</button></div>';
+  }
+  function val(id) { var el = document.getElementById(id); return el ? el.value : ''; }
+  function authFail(msg) {
+    busy = false; authErr = msg; authNote = ''; render({ keepScroll: true });
+    var bad = document.getElementById(!authVals.email ? 'au-email' : 'au-pass'); if (bad) bad.focus();
+  }
+  function afterAuth() {
+    authErr = ''; authNote = ''; authVals = { name: '', email: '' };
+    return sync(true).then(function () {
+      busy = false;
+      var to = state.after || '#home'; state.after = null; save();
+      if (location.hash === to) render(); else location.hash = to;
+    });
+  }
+  function doAuth(btn) {
+    if (busy) return;
+    var up = authMode === 'up', name = up ? val('au-name').trim() : '', email = val('au-email').trim(), pass = val('au-pass');
+    authVals = { name: name, email: email };
+    if (up && !name) return authFail('Write your full name.');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return authFail('Write your email, like you@binus.ac.id.');
+    if (pass.length < 6) return authFail('Use a password of at least 6 characters.');
+    working(btn || app.querySelector('[data-act="auth-go"]'), up ? 'Creating account…' : 'Signing in…');
+    (up ? API.signUp(name, email, pass) : API.signIn(email, pass)).then(function (r) {
+      if (r && r.needsConfirm) { busy = false; authMode = 'in'; authErr = ''; authNote = 'We sent a confirmation link to ' + email + '. Open it, then sign in here.'; render({ keepScroll: true }); return; }
+      return afterAuth();
+    }).catch(function (e) { authFail(e.message); });
+  }
+
   /* ---------- Router ---------- */
-  var DEPTH = { home: 0, explore: 0, sessions: 0, host: 0, profile: 0, s: 1, pay: 2, qris: 3, done: 4, apply: 1, applied: 2, new: 1, manage: 1, earnings: 1, rate: 1, notifications: 1, help: 1 };
+  var DEPTH = { home: 0, explore: 0, sessions: 0, host: 0, profile: 0, s: 1, pay: 2, qris: 3, done: 4, apply: 1, applied: 2, new: 1, manage: 1, earnings: 1, rate: 1, notifications: 1, help: 1, signin: 1 };
+  // Pages that belong to an account. Signed-out visitors can still browse the week and session details.
+  var PRIVATE = { pay: 1, qris: 1, done: 1, sessions: 1, rate: 1, apply: 1, applied: 1, new: 1, manage: 1, earnings: 1, notifications: 1, profile: 1 };
   function parse() {
     var h = (location.hash || '#home').slice(1).split('/');
     var name = DEPTH.hasOwnProperty(h[0]) ? h[0] : 'home';
@@ -830,7 +992,9 @@
   var current = parse();
 
   function view(r) {
+    if (API && !API.user && PRIVATE[r.name]) { state.after = location.hash; save(); location.replace('#signin'); return ''; }
     switch (r.name) {
+      case 'signin': return signin();
       case 'explore': return explore();
       case 's': return details(r.id);
       case 'pay': return pay(r.id);
@@ -865,7 +1029,7 @@
       strip.scrollLeft = Math.max(0, Math.min(want, strip.scrollWidth - strip.clientWidth));
     }
     if (!(opts && opts.keepScroll)) { var h1 = app.querySelector('h1'); if (h1) h1.focus({ preventScroll: true }); }
-    var titles = { home: 'Your week', explore: 'Explore', s: 'Session', pay: 'Review & pay', qris: 'Pay with QRIS', done: 'Booking confirmed', sessions: 'My Sessions', host: 'Host', profile: 'Profile', apply: 'Apply to teach', applied: 'Application', new: 'Create session', manage: 'Manage session', earnings: 'Earnings', rate: 'Rate session', notifications: 'Notifications', help: 'Help & support' };
+    var titles = { home: 'Your week', explore: 'Explore', s: 'Session', pay: 'Review & pay', qris: 'Pay with QRIS', done: 'Booking confirmed', sessions: 'My Sessions', host: 'Host', profile: 'Profile', apply: 'Apply to teach', applied: 'Application', new: 'Create session', manage: 'Manage session', earnings: 'Earnings', rate: 'Rate session', notifications: 'Notifications', help: 'Help & support', signin: 'Sign in' };
     document.title = 'LearNect · ' + (titles[current.name] || 'Demo');
   }
   function go() {
@@ -898,6 +1062,13 @@
     if (act === 'mytab') { state.mytab = t.getAttribute('data-v'); save(); render({ keepScroll: true }); return; }
     if (act === 'cancel') { cancelSheet(t.getAttribute('data-id')); return; }
     if (act === 'sheet-close') { closeSheet(); return; }
+    if (act === 'cancel-yes' && API) {
+      if (busy) return;
+      var bid = t.getAttribute('data-id');
+      working(t, 'Cancelling…');
+      API.cancel(bid).then(function () { return sync(true); }).then(function () { busy = false; state.mytab = 'cancelled'; save(); closeSheet(); setTimeout(function () { render({ keepScroll: true }); }, 200); }).catch(failed('Booking not cancelled'));
+      return;
+    }
     if (act === 'cancel-yes') {
       var cid = t.getAttribute('data-id');
       state.refunds = state.refunds || {}; state.refunds[cid] = D.refundable(S(cid).day, S(cid).start) ? S(cid).price : 0;
@@ -905,11 +1076,27 @@
       closeSheet(); setTimeout(function () { render({ keepScroll: true }); }, 200); return;
     }
     if (act === 'reset') { resetDemo(); return; }
+    if (act === 'auth-mode') { authMode = t.getAttribute('data-v'); authErr = ''; authNote = ''; authVals = { name: val('au-name') || authVals.name, email: val('au-email') }; render({ keepScroll: true }); var mb = document.getElementById('au-m-' + authMode); if (mb) mb.focus(); return; }
+    if (act === 'auth-go') { doAuth(t); return; }
+    if (act === 'auth-guest') {
+      if (busy) return;
+      working(t, 'Starting guest session…');
+      API.guest().then(afterAuth).catch(function (e) { busy = false; authErr = e.message; render({ keepScroll: true }); });
+      return;
+    }
     if (hostAct(act, t)) return;
     if (act === 'paid') {
       var id = t.getAttribute('data-id');
-      t.disabled = true; t.innerHTML = '<span class="spin" aria-hidden="true"></span>Checking payment…';
+      if (busy) return;
+      working(t, 'Checking payment…');
+      if (API) {
+        Promise.all([API.book(id), wait(900)]).then(function () { return sync(true); })
+          .then(function () { busy = false; state.lastBooked = id; state.day = S(id).day; save(); location.hash = '#done/' + id; })
+          .catch(failed('Booking didn’t go through'));
+        return;
+      }
       setTimeout(function () {
+        busy = false;
         state.booked[id] = true; delete state.cancelled[id]; state.lastBooked = id; state.day = S(id).day; save();
         location.hash = '#done/' + id;
       }, 900);
@@ -923,10 +1110,15 @@
     }
   });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeSheet(); });
+  app.addEventListener('submit', function (e) { e.preventDefault(); if (e.target.id === 'auth-form') doAuth(); });
 
+  // Offline: start the demo again. With accounts: sign out too, so the next visitor starts clean.
   function resetDemo() {
-    state = fresh(); save();
-    if (location.hash === '#home' || !location.hash) render(); else location.hash = '#home';
+    state = fresh(); authErr = ''; authNote = ''; closeSheet();
+    (API ? API.signOut().then(function () { clearServerState(); save(); return sync(true); }).catch(function () {}) : Promise.resolve()).then(function () {
+      state.after = null; save();
+      if (location.hash === '#home' || !location.hash) render(); else location.hash = '#home';
+    });
   }
   var rb = document.getElementById('reset-demo'); if (rb) rb.addEventListener('click', resetDemo);
 
@@ -938,5 +1130,19 @@
   fitHandset();
   window.addEventListener('resize', fitHandset);
 
-  render();
+  if (!API) { render(); return; }
+
+  // With a backend: load the account and the shared seats first. If that fails, run the offline demo instead.
+  clearServerState();
+  app.innerHTML = '<div class="screen"><div class="pad" style="padding-top:80px"><p class="sub" style="display:flex;gap:10px;align-items:center"><span class="spin" aria-hidden="true" style="width:16px;height:16px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;display:inline-block;animation:spin 700ms linear infinite"></span>Loading your week…</p></div></div>';
+  API.init().then(function () { return API.load(); }).then(function (d) {
+    applyServer(d);
+    API.onAuth = function () { if (busy) return; if (!API.user) { clearServerState(); save(); } sync(false).catch(function () {}); };
+    setInterval(function () { if (!document.hidden) sync(true).catch(function () {}); }, 15000);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) sync(true).catch(function () {}); });
+    render();
+  }).catch(function (e) {
+    if (window.console) console.warn('LearNect backend unavailable, so the demo runs offline.', e);
+    API = null; D.sessions = SAMPLE; EXTRA = []; render();
+  });
 })();

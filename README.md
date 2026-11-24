@@ -4,7 +4,7 @@ LearNect is a peer-tutoring marketplace for university students, starting around
 
 This is a showcase demo. The mentors, courses and class timetable are sample data, QRIS payment is simulated, and no real money is charged.
 
-The website's booking and hosting product (`website/app/`) has a real backend on [Supabase](https://supabase.com): accounts (email and password, or guest), and bookings, seats, mentor applications, hosted sessions and ratings that every visitor shares. The phone app (`demo/`) keeps its sample data in each browser tab.
+The website's booking and hosting product (`website/app/`) has a real backend on [Supabase](https://supabase.com): accounts (email and password, or guest), and bookings, seats, mentor applications, hosted sessions and ratings that every visitor shares. The phone app (`demo/`) uses the same backend and accounts, so a booking made on one shows on the other.
 
 ## Try it online
 
@@ -42,6 +42,6 @@ Keep `website/` and `demo/` next to each other, because the website reads `demo/
 
 ## Backend
 
-`website/app/config.js` holds the Supabase project address and its publishable key. That key is meant to be public: the database's access rules decide what anyone can read or change. Leave both values empty to run the booking product as the offline demo, with sample data in each browser tab. If Supabase can't be reached, the site switches to the offline demo by itself.
+`website/app/config.js` and `demo/js/config.js` hold the Supabase project address and its publishable key (keep the two copies the same, and the same for `api.js`). That key is meant to be public: the database's access rules decide what anyone can read or change. Leave both values empty to run that version as the offline demo, with sample data in each browser tab. If Supabase can't be reached, the site switches to the offline demo by itself.
 
 To set up your own project: create one at supabase.com, run `backend/supabase/setup.sql` in its SQL Editor, turn on anonymous sign-ins and turn off email confirmation under Authentication, then put its address and publishable key in `config.js`.
