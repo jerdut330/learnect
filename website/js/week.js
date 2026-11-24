@@ -3,6 +3,13 @@
 (function () {
   'use strict';
   var D = window.LN_DATA;
+  // Real dates: fill in this week's dates wherever the page names one.
+  (function () {
+    var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    var wk = document.querySelectorAll('[data-ln-week]'), dd = document.querySelectorAll('[data-ln-day]'), i;
+    for (i = 0; i < wk.length; i++) wk[i].textContent = 'Demo · ' + D.WEEK_LABEL;
+    for (i = 0; i < dd.length; i++) { var n = +dd[i].getAttribute('data-ln-day'), x = new Date(D.WEEK_START + 'T00:00:00'); x.setDate(x.getDate() + n); dd[i].textContent = DAYS[n] + ' ' + x.getDate() + ' ' + MON[x.getMonth()]; }
+  })();
   var root = document.querySelector('[data-week]');
   var DAY_S = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   var DAY_L = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];

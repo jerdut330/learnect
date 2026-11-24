@@ -43,7 +43,10 @@
   function isBooked(s) { return !!state.booked[s.id]; }
   function taken(s) { return s.booked + (isBooked(s) ? 1 : 0); }
   function left(s) { return Math.max(0, s.seats - taken(s)); }
-  function isFull(s) { return left(s) === 0 && !isBooked(s); }
+  // Real dates: a session that has already started this week can't be booked any more.
+  function ended(s) { return D.isPast(s.day, s.start); }
+  function isFull(s) { return (left(s) === 0 || ended(s)) && !isBooked(s); }
+  function refundOf(s) { var r = (state.refunds || {})[s.id]; return r == null ? s.price : r; }
   function classesOn(day) {
     var list = D.classes.filter(function (c) { return c.day === day; });
     if (state.role === 'approved') state.hosted.forEach(function (h) {
@@ -68,6 +71,7 @@
   }
   function seatsText(s) {
     if (isBooked(s)) return 'You have a seat';
+    if (ended(s)) return 'This session has started';
     var l = left(s);
     return l === 0 ? 'Full' : (l + ' of ' + s.seats + ' seats left');
   }
@@ -226,7 +230,7 @@
     var clash = clashOf(s);
     var col = blockColour(s);
     var reason = isBooked(s) ? '<span class="reason">' + ic('check').replace('<svg', '<svg width="14" height="14"') + 'Booked</span>'
-      : isFull(s) ? '<span class="reason">Full</span>'
+      : isFull(s) ? '<span class="reason">' + (ended(s) ? 'Started' : 'Full') + '</span>'
       : clash ? '<span class="reason">Clashes with your ' + clash.start + ' class</span>'
       : '<span class="reason">Fits your free time</span>';
     return '<a class="blk-link" href="#s/' + s.id + '"><div class="blk ' + col + '">' +
@@ -300,7 +304,7 @@
     var place = s.format.type === 'online' ? ic('video') : ic('pin');
     var action;
     if (isBooked(s)) action = '<a class="btn btn-primary" href="#sessions">View in My Sessions</a>';
-    else if (isFull(s)) action = '<button class="btn" type="button" disabled>Session full</button>';
+    else if (isFull(s)) action = '<button class="btn" type="button" disabled>' + (ended(s) ? 'Session has started' : 'Session full') + '</button>';
     else action = '<a class="btn btn-primary" href="#pay/' + s.id + '">Book session</a>';
 
     return '<div class="screen">' + bar('Session', backBtn()) + band(s, true) +
@@ -324,6 +328,7 @@
   function pay(id) {
     var s = S(id); if (!s) return notFound();
     if (isBooked(s)) { location.replace('#done/' + s.id); return ''; }
+    if (isFull(s)) { location.replace('#s/' + s.id); return ''; }
     return '<div class="screen">' + bar('Review & pay', backBtn()) + band(s) +
       '<div class="pad">' +
       '<div class="sec" style="margin-top:8px"><h2>Price</h2></div>' +
@@ -360,6 +365,7 @@
   function qris(id) {
     var s = S(id); if (!s) return notFound();
     if (isBooked(s)) { location.replace('#done/' + s.id); return ''; }
+    if (isFull(s)) { location.replace('#s/' + s.id); return ''; }
     return '<div class="screen">' + bar('Pay with QRIS', backBtn()) + band(s) +
       '<div class="pad"><div class="qr-card">' +
       '<div class="qr-head"><span>QRIS</span><span class="demo-flag">' + ic('info').replace('<svg', '<svg width="14" height="14"') + 'Demo · no money is charged</span></div>' +
@@ -404,7 +410,8 @@
 
   /* ---------- My Sessions ---------- */
   function sessions() {
-    var up = D.sessions.filter(isBooked).sort(function (a, b) { return a.day - b.day || mins(a.start) - mins(b.start); });
+    var up = D.sessions.filter(function (s) { return isBooked(s) && !ended(s); }).sort(function (a, b) { return a.day - b.day || mins(a.start) - mins(b.start); });
+    var finished = D.sessions.filter(function (s) { return isBooked(s) && ended(s); });
     var can = D.sessions.filter(function (s) { return state.cancelled[s.id] && !isBooked(s); });
     var tabs = [['upcoming', 'Upcoming (' + up.length + ')'], ['past', 'Past'], ['cancelled', 'Cancelled' + (can.length ? ' (' + can.length + ')' : '')]];
     var body = '';
@@ -421,14 +428,16 @@
       }).join('') + '</div>'
         : '<div class="empty"><b>No upcoming sessions</b><p>Saturday has a free gap after your class, and sessions fit in it.</p><a class="btn btn-primary" href="#home" data-act="see-week" data-day="5">See what fits</a></div>';
     } else if (state.mytab === 'past') {
-      body = '<div class="list">' + D.past.map(function (p) {
+      body = '<div class="list">' + finished.map(function (s) {
+        return '<div class="my-blk past"><div class="head"><div class="time num">' + s.start + '<span>' + shortDate(s.day) + '</span></div><div><div class="t">' + esc(s.title) + '</div><div class="meta">' + esc(C(s).name + ' · ' + M(s).name) + '</div></div></div><span class="hint">Finished this week</span></div>';
+      }).join('') + D.past.map(function (p) {
         var r = state.ratings[p.id], done = r && r.sent;
         return '<div class="my-blk past"><div class="head"><div class="time num">' + p.start + '<span>' + esc(p.date) + '</span></div><div><div class="t">' + esc(p.title) + '</div><div class="meta">' + esc(D.courses[p.course].name + ' · ' + D.mentors[p.mentor].name) + '</div></div></div>' +
           (done ? '<span class="hint">You rated this ' + r.stars + ' out of 5. Thanks.</span>' : '<a class="btn btn-secondary" href="#rate/' + p.id + '">Rate this session</a>') + '</div>';
       }).join('') + '</div>';
     } else {
       body = can.length ? '<div class="list">' + can.map(function (s) {
-        return '<div class="my-blk cancelled"><div class="head"><div class="time num">' + s.start + '<span>' + shortDate(s.day) + '</span></div><div><div class="t">' + esc(s.title) + '</div><div class="meta">Cancelled · ' + rp(s.price) + ' refunded</div></div></div></div>';
+        return '<div class="my-blk cancelled"><div class="head"><div class="time num">' + s.start + '<span>' + shortDate(s.day) + '</span></div><div><div class="t">' + esc(s.title) + '</div><div class="meta">Cancelled · ' + (refundOf(s) ? rp(refundOf(s)) + ' refunded' : 'not refunded') + '</div></div></div></div>';
       }).join('') + '</div>' : '<div class="empty"><b>Nothing cancelled</b><p>Cancelled bookings and their refunds appear here.</p></div>';
     }
     return '<div class="screen"><header class="top pad"><h1 class="title-xl" tabindex="-1">My Sessions</h1></header>' +
@@ -444,7 +453,7 @@
     wrap.innerHTML = '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="cancel-title"><span class="grab" aria-hidden="true"></span>' +
       '<h2 id="cancel-title">Cancel this booking?</h2>' +
       '<p><b>' + esc(s.title) + '</b>, ' + longDate(s.day) + ' at ' + s.start + '.</p>' +
-      '<div class="note">' + ic('info') + '<span>It’s more than 24 hours before the session, so you get a full refund of <b>' + rp(s.price) + '</b> to the account you paid from.</span></div>' +
+      '<div class="note">' + ic('info') + '<span>' + (D.refundable(s.day, s.start) ? 'It’s more than 24 hours before the session, so you get a full refund of <b>' + rp(s.price) + '</b> to the account you paid from.' : 'It’s less than 24 hours before the session, so this booking can’t be refunded.') + '</span></div>' +
       '<button class="btn btn-primary btn-block" type="button" data-act="cancel-yes" data-id="' + s.id + '">Cancel booking</button>' +
       '<button class="btn btn-secondary btn-block" type="button" data-act="sheet-close">Keep my seat</button></div>';
     app.appendChild(wrap);
@@ -607,6 +616,7 @@
   function nwEnd() { return mins(state.nw.start) + state.nw.len; }
   function nwClash() {
     var a = mins(state.nw.start), b = nwEnd(), hit = null;
+    if (D.isPast(state.nw.day, state.nw.start)) return { past: true, start: state.nw.start, end: hhmm(b), title: 'a time that has passed' };
     classesOn(state.nw.day).forEach(function (c) { if (mins(c.start) < b && mins(c.end) > a) hit = c; });
     D.sessions.forEach(function (s) { if (s.day === state.nw.day && isBooked(s) && mins(s.start) < b && mins(s.end) > a) hit = { start: s.start, end: s.end, title: s.title, booked: true }; });
     return hit;
@@ -614,7 +624,7 @@
   function nwFitHtml() {
     var c = nwClash(), n = state.nw;
     var slice = daySlice(n.day, { a: mins(n.start), b: nwEnd(), course: n.course, title: n.title });
-    return slice + (c
+    return slice + (c && c.past ? '<div class="fit clash" style="margin-top:10px">' + ic('warn') + '<span>That time has already passed. Pick a later time or day.</span></div>' : c
       ? '<div class="fit clash" style="margin-top:10px">' + ic('warn') + '<span>Clashes with ' + (c.booked ? 'your booked session' : c.teaching ? 'your session' : 'your class') + ' <b>' + esc(c.title) + '</b> (' + c.start + '–' + c.end + ').</span></div>'
       : '<div class="fit" style="margin-top:10px">' + ic('gap') + '<span>' + DAY_L[n.day] + ' ' + n.start + '–' + hhmm(nwEnd()) + ' fits your free time.</span></div>');
   }
@@ -624,7 +634,7 @@
     var n = state.nw, times = '';
     for (var t = 7 * 60; t <= 20 * 60; t += 30) times += '<option' + (hhmm(t) === n.start ? ' selected' : '') + '>' + hhmm(t) + '</option>';
     var days = '<div class="days days-flush" role="group" aria-label="Day">' + DAY_S.map(function (d, i) {
-      var off = i <= D.TODAY_INDEX;
+      var off = i < D.TODAY_INDEX;
       return '<button type="button" class="day" aria-pressed="' + (i === n.day) + '" data-act="nw-day" data-v="' + i + '"' + (off ? ' disabled' : '') + ' aria-label="' + longDate(i) + '">' + d + '<b class="num">' + dayNum(i) + '</b></button>';
     }).join('') + '</div>';
     return '<div class="screen">' + bar('Create session', backBtn()) + '<form class="form-stack" id="new-form" novalidate><div class="pad form-stack">' +
@@ -890,6 +900,7 @@
     if (act === 'sheet-close') { closeSheet(); return; }
     if (act === 'cancel-yes') {
       var cid = t.getAttribute('data-id');
+      state.refunds = state.refunds || {}; state.refunds[cid] = D.refundable(S(cid).day, S(cid).start) ? S(cid).price : 0;
       delete state.booked[cid]; state.cancelled[cid] = true; save();
       closeSheet(); setTimeout(function () { render({ keepScroll: true }); }, 200); return;
     }

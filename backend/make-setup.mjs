@@ -1,4 +1,4 @@
-// Builds backend/supabase/setup.sql: schema.sql plus the sample sessions from demo/js/data.js,
+// Builds backend/supabase/setup.sql: schema.sql, then real-dates.sql, then the sample sessions from demo/js/data.js,
 // so the database starts with exactly the sessions, prices and seats the site shows.
 // Run: node backend/make-setup.mjs
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -23,8 +23,8 @@ insert into public.sessions (id, course, mentor, title, day, start_t, end_t, pri
 ${rows.join(',\n')}
 on conflict (id) do update set course = excluded.course, mentor = excluded.mentor, title = excluded.title, day = excluded.day,
   start_t = excluded.start_t, end_t = excluded.end_t, price = excluded.price, seats = excluded.seats, base_booked = excluded.base_booked,
-  format = excluded.format, blurb = excluded.blurb, learn = excluded.learn, bring = excluded.bring, listed = true, status = 'live';
+  format = excluded.format, blurb = excluded.blurb, learn = excluded.learn, bring = excluded.bring, listed = true, status = 'live', week_start = null;
 `;
 
-writeFileSync(here('./supabase/setup.sql'), readFileSync(here('./supabase/schema.sql'), 'utf8') + seed);
+writeFileSync(here('./supabase/setup.sql'), readFileSync(here('./supabase/schema.sql'), 'utf8') + '\n' + readFileSync(here('./supabase/real-dates.sql'), 'utf8') + seed);
 console.log('Wrote backend/supabase/setup.sql with ' + rows.length + ' sample sessions.');

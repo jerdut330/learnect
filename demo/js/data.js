@@ -3,8 +3,26 @@
    All people, course codes and schedules are SAMPLE DATA for the showcase demo. */
 
 window.LN_DATA = (function () {
-  // The demo's "today" is the showcase day, so the week on screen is always the same.
-  var TODAY = '2026-11-25'; // Wednesday
+  /* Real dates, in Jakarta time (UTC+7 all year, the same clock the database uses).
+     "This week" runs Monday to Sunday around today. Sessions and classes repeat every week on the same
+     weekday, so on showcase day (Wed 25 Nov 2026) this is the week of 23 to 29 Nov. */
+  var JKT_MS = 7 * 60 * 60000;
+  var MON_S = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  var jkt = new Date(Date.now() + JKT_MS); // read with the UTC getters to get Jakarta's wall clock
+  var TODAY_INDEX = (jkt.getUTCDay() + 6) % 7; // 0 = Monday
+  function utcDay(offset) { return new Date(Date.UTC(jkt.getUTCFullYear(), jkt.getUTCMonth(), jkt.getUTCDate() - TODAY_INDEX + offset)); }
+  function iso(d) { return d.toISOString().slice(0, 10); }
+  var monday = utcDay(0), sunday = utcDay(6), lastSat = utcDay(-2);
+  var TODAY = iso(utcDay(TODAY_INDEX));
+  var WEEK_START = iso(monday);
+  var WEEK_LABEL = monday.getUTCMonth() === sunday.getUTCMonth()
+    ? monday.getUTCDate() + ' to ' + sunday.getUTCDate() + ' ' + MON_S[sunday.getUTCMonth()]
+    : monday.getUTCDate() + ' ' + MON_S[monday.getUTCMonth()] + ' to ' + sunday.getUTCDate() + ' ' + MON_S[sunday.getUTCMonth()];
+  // When a slot this week starts, as a real timestamp, and whether that time has already come.
+  function startsAt(day, hhmm) { var p = hhmm.split(':'); return Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate() + day, +p[0], +p[1]) - JKT_MS; }
+  function isPast(day, hhmm) { return startsAt(day, hhmm) <= Date.now(); }
+  // A full refund needs at least 24 hours' notice (the refund rule below).
+  function refundable(day, hhmm) { return startsAt(day, hhmm) - Date.now() >= 24 * 60 * 60000; }
 
   var courses = {
     ml:   { id: 'ml',   name: 'Machine Learning', code: 'COMP6799', colour: 'cobalt' },
@@ -91,9 +109,13 @@ window.LN_DATA = (function () {
   ];
 
   return {
-    TODAY: TODAY,
-    TODAY_INDEX: 2,          // Wednesday in the Monday-first demo week
-    WEEK_START: '2026-11-23', // Monday
+    TODAY: TODAY,             // today's date in Jakarta, YYYY-MM-DD
+    TODAY_INDEX: TODAY_INDEX, // 0 = Monday of this week
+    WEEK_START: WEEK_START,   // this week's Monday, YYYY-MM-DD
+    WEEK_LABEL: WEEK_LABEL,   // for example "23 to 29 Nov"
+    startsAt: startsAt,
+    isPast: isPast,
+    refundable: refundable,
     user: { name: 'Alex', full: 'Alex Santoso', campus: 'Kemanggisan', major: 'Computer Science' },
     courses: courses,
     mentors: mentors,
@@ -117,7 +139,7 @@ window.LN_DATA = (function () {
 
     /* A finished session, so the rating flow has something to rate */
     past: [
-      { id: 'basics', title: 'Python Basics Review', course: 'prog', mentor: 'alya', date: 'Sat 21 Nov', start: '13:00', end: '14:30', price: 20000 }
+      { id: 'basics', title: 'Python Basics Review', course: 'prog', mentor: 'alya', date: 'Sat ' + lastSat.getUTCDate() + ' ' + MON_S[lastSat.getUTCMonth()], start: '13:00', end: '14:30', price: 20000 }
     ],
     ratingTags: ['Clear explanations', 'Good pace', 'Exam-focused', 'Friendly', 'Useful examples'],
 

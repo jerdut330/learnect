@@ -47,9 +47,12 @@
   function applyServer(d) {
     var uid = API.user && API.user.id, mine = {}, list = [], extra = [], hostedList = [];
     clearServerState();
-    d.bookings.forEach(function (b) { if (b.status === 'booked') { state.booked[b.session_id] = true; mine[b.session_id] = true; CODES[b.session_id] = b.code; } });
-    d.bookings.forEach(function (b) { if (b.status === 'cancelled' && !mine[b.session_id]) state.cancelled[b.session_id] = true; });
+    var week = d.bookings.filter(function (b) { return b.week_start === D.WEEK_START; });
+    state.refunds = {};
+    week.forEach(function (b) { if (b.status === 'booked') { state.booked[b.session_id] = true; mine[b.session_id] = true; CODES[b.session_id] = b.code; } });
+    week.forEach(function (b) { if (b.status === 'cancelled' && !mine[b.session_id]) { state.cancelled[b.session_id] = true; state.refunds[b.session_id] = b.refunded; } });
     d.sessions.forEach(function (r) {
+      if (r.week_start && r.week_start !== D.WEEK_START) return; // a hosted session from another week
       if (uid && r.host_id === uid) {
         if (r.status === 'live') hostedList.push({ id: r.id, course: r.course, title: r.title, day: r.day, start: r.start_t, end: r.end_t, price: r.price, seats: r.seats,
           booked: d.counts.hasOwnProperty(r.id) ? d.counts[r.id] : r.base_booked, type: r.format.type, place: r.format.place });
@@ -109,7 +112,10 @@
   function isBooked(s) { return !!state.booked[s.id]; }
   function taken(s) { return s.booked + (isBooked(s) ? 1 : 0); }
   function left(s) { return Math.max(0, s.seats - taken(s)); }
-  function isFull(s) { return left(s) === 0 && !isBooked(s); }
+  // Real dates: a session that has already started this week can't be booked any more.
+  function ended(s) { return D.isPast(s.day, s.start); }
+  function isFull(s) { return (left(s) === 0 || ended(s)) && !isBooked(s); }
+  function refundOf(s) { var r = (state.refunds || {})[s.id]; return r == null ? s.price : r; }
   function tone(s) { return isBooked(s) ? 'sun' : isFull(s) ? 'full' : C(s).colour; }
   function byTime(a, b) { return a.day - b.day || mins(a.start) - mins(b.start); }
   function classesOn(day) {
@@ -135,7 +141,7 @@
   }
   function bookingCode(s) { if (CODES[s.id]) return CODES[s.id]; var h = 0; for (var i = 0; i < s.id.length; i++) h = (h * 31 + s.id.charCodeAt(i)) % 9000; return 'LN-' + (1000 + h); }
   function cellsHtml(n, total) { var o = '<span class="cells" aria-hidden="true">'; for (var i = 0; i < total; i++) o += '<i' + (i < n ? ' class="f"' : '') + '></i>'; return o + '</span>'; }
-  function seatsText(s) { if (isBooked(s)) return 'You have a seat'; var l = left(s); return l === 0 ? 'Full' : l + ' of ' + s.seats + ' seats left'; }
+  function seatsText(s) { if (isBooked(s)) return 'You have a seat'; if (ended(s)) return 'This session has started'; var l = left(s); return l === 0 ? 'Full' : l + ' of ' + s.seats + ' seats left'; }
   function fitText(s) {
     var cls = classesOn(s.day), a = mins(s.start), before = null, after = null;
     cls.forEach(function (c) {
@@ -203,7 +209,7 @@
   }
   function listed() { return D.sessions.filter(matches).sort(byTime); }
   function rowHtml(s) {
-    var clash = clashOf(s), right = isBooked(s) ? 'Booked' : isFull(s) ? 'Full' : rpShort(s.price) + '<br>' + left(s) + ' left';
+    var clash = clashOf(s), right = isBooked(s) ? 'Booked' : isFull(s) ? (ended(s) ? 'Started' : 'Full') : rpShort(s.price) + '<br>' + left(s) + ' left';
     var place = s.format.type === 'online' ? 'Online' : s.format.place.split(',')[1].trim();
     var meta = C(s).name + ' · ' + M(s).name + ' · ' + place;
     if (clash && !isBooked(s)) meta = 'Clashes with your ' + clash.start + ' class';
@@ -250,7 +256,7 @@
       : clash ? '<div class="fit clash">' + ic('warn') + '<span>Clashes with your class <b>' + esc(clash.title) + '</b> (' + clash.start + '–' + clash.end + ').</span></div>'
       : '<div class="fit">' + ic('gap') + '<span>' + fitText(s) + '</span></div>';
     if (isBooked(s)) action = '<a class="btn primary" href="#sessions">View in My Sessions</a>';
-    else if (isFull(s)) action = '<button class="btn" type="button" disabled>Session full</button>';
+    else if (isFull(s)) action = '<button class="btn" type="button" disabled>' + (ended(s) ? 'Session has started' : 'Session full') + '</button>';
     else action = '<a class="btn primary" href="#pay/' + s.id + '">Book session</a>';
     return screen(head('Session', '#week'), band(s) + '<p>' + esc(s.blurb) + '</p><div class="seats">' + cellsHtml(taken(s), s.seats) + '<span>' + seatsText(s) + '</span></div>' + fit +
       '<h2 class="sec">Where</h2><div class="card place"><span class="ic">' + ic(s.format.type === 'online' ? 'video' : 'pin') + '</span><div><b>' + esc(s.format.place) + '</b><p>' + esc(s.format.detail) + '</p></div></div>' +
@@ -313,7 +319,8 @@
 
   /* ---------- My Sessions ---------- */
   function sessions() {
-    var up = all().filter(isBooked).sort(byTime), can = all().filter(function (s) { return state.cancelled[s.id] && !isBooked(s); }), body;
+    var finished = all().filter(function (s) { return isBooked(s) && ended(s); });
+    var up = all().filter(function (s) { return isBooked(s) && !ended(s); }).sort(byTime), can = all().filter(function (s) { return state.cancelled[s.id] && !isBooked(s); }), body;
     var tabs = [['upcoming', 'Upcoming (' + up.length + ')'], ['past', 'Past'], ['cancelled', 'Cancelled' + (can.length ? ' (' + can.length + ')' : '')]];
     if (state.mytab === 'upcoming') {
       body = up.length ? up.map(function (s) {
@@ -323,14 +330,16 @@
           '<button class="link" type="button" data-act="cancel" data-id="' + s.id + '">Cancel</button></div></div>';
       }).join('') : '<div class="empty"><b>No upcoming sessions</b><p>Saturday has a free gap after your class, and sessions fit in it.</p><a class="btn primary" href="#week">See what fits</a></div>';
     } else if (state.mytab === 'past') {
-      body = D.past.map(function (p) {
+      body = finished.map(function (s) {
+        return '<div class="my past"><div class="my-h"><div class="tm">' + s.start + '<span>' + shortDate(s.day) + '</span></div><div><div class="t">' + esc(s.title) + '</div><div class="meta">' + esc(C(s).name + ' · ' + M(s).name) + '</div></div></div><span class="hint">Finished this week</span></div>';
+      }).join('') + D.past.map(function (p) {
         var r = state.ratings[p.id], sent = r && r.sent;
         return '<div class="my past"><div class="my-h"><div class="tm">' + p.start + '<span>' + esc(p.date) + '</span></div><div><div class="t">' + esc(p.title) + '</div><div class="meta">' + esc(D.courses[p.course].name + ' · ' + D.mentors[p.mentor].name) + '</div></div></div>' +
           (sent ? '<span class="hint">You rated this ' + r.stars + ' out of 5. Thanks.</span>' : '<a class="btn secondary" href="#rate/' + p.id + '">Rate this session</a>') + '</div>';
       }).join('');
     } else {
       body = can.length ? can.map(function (s) {
-        return '<div class="my cancelled"><div class="my-h"><div class="tm">' + s.start + '<span>' + shortDate(s.day) + '</span></div><div><div class="t">' + esc(s.title) + '</div><div class="meta">Cancelled · ' + rp(s.price) + ' refunded</div></div></div></div>';
+        return '<div class="my cancelled"><div class="my-h"><div class="tm">' + s.start + '<span>' + shortDate(s.day) + '</span></div><div><div class="t">' + esc(s.title) + '</div><div class="meta">Cancelled · ' + (refundOf(s) ? rp(refundOf(s)) + ' refunded' : 'not refunded') + '</div></div></div></div>';
       }).join('') : '<div class="empty"><b>Nothing cancelled</b><p>Cancelled bookings and their refunds appear here.</p></div>';
     }
     return screen(head('My Sessions'), '<div class="seg wide" role="group" aria-label="Show" style="margin-bottom:14px">' + tabs.map(function (t) {
@@ -431,12 +440,14 @@
   function nwClash() {
     var a = mins(state.nw.start), b = nwEnd(), hit = null;
     if (b > END) return { start: hhmm(END), end: hhmm(END), title: 'the end of the day', late: true };
+    if (D.isPast(state.nw.day, state.nw.start)) return { start: state.nw.start, end: hhmm(b), title: 'a time that has passed', past: true };
     classesOn(state.nw.day).forEach(function (c) { if (mins(c.start) < b && mins(c.end) > a) hit = c; });
     D.sessions.forEach(function (s) { if (s.day === state.nw.day && isBooked(s) && mins(s.start) < b && mins(s.end) > a) hit = { start: s.start, end: s.end, title: s.title, booked: true }; });
     return hit;
   }
   function nwFitHtml() {
     var c = nwClash(), n = state.nw;
+    if (c && c.past) return '<div class="fit clash">' + ic('warn') + '<span>That time has already passed. Pick a later time or day.</span></div>';
     if (c && c.late) return '<div class="fit clash">' + ic('warn') + '<span>This session would end after 21:00. Pick an earlier start or a shorter length.</span></div>';
     return c ? '<div class="fit clash">' + ic('warn') + '<span>Clashes with ' + (c.booked ? 'your booked session' : c.teaching ? 'your session' : 'your class') + ' <b>' + esc(c.title) + '</b> (' + c.start + '–' + c.end + ').</span></div>'
       : '<div class="fit">' + ic('gap') + '<span>' + DAY_L[n.day] + ' ' + n.start + '–' + hhmm(nwEnd()) + ' fits your free time.</span></div>';
@@ -456,7 +467,7 @@
       }).join('') + '</div></div>' +
       field('nw-title', 'Session title', '<input id="nw-title" data-nw="title" maxlength="40" autocomplete="off" value="' + esc(n.title) + '"' + (nwErr ? ' aria-invalid="true" aria-describedby="nw-title-err"' : '') + '>', nwErr) +
       '<div class="field"><span class="flabel label-row">Day<small>or click a free time in your week</small></span><div class="days" role="group" aria-label="Day">' + DAY_S.map(function (d, i) {
-        return '<button type="button" class="day" id="nw-d-' + i + '" aria-pressed="' + (i === n.day) + '" data-act="nw-day" data-v="' + i + '"' + (i <= D.TODAY_INDEX ? ' disabled' : '') + ' aria-label="' + longDate(i) + '">' + d + '<b>' + dayNum(i) + '</b></button>';
+        return '<button type="button" class="day" id="nw-d-' + i + '" aria-pressed="' + (i === n.day) + '" data-act="nw-day" data-v="' + i + '"' + (i < D.TODAY_INDEX ? ' disabled' : '') + ' aria-label="' + longDate(i) + '">' + d + '<b>' + dayNum(i) + '</b></button>';
       }).join('') + '</div></div>' +
       '<div class="two">' + field('nw-start', 'Start', '<select id="nw-start" data-nw="start">' + times + '</select>') +
       '<div class="field"><span class="flabel">Length</span><div class="seg wide" role="group" aria-label="Length" style="min-height:46px">' + [60, 90, 120].map(function (l) {
@@ -632,7 +643,7 @@
         .concat(wk.filter(function (s) { return s.day === d && (s === act || isBooked(s) || !clashOf(s)); }).map(function (s) { return { kind: 'session', a: mins(s.start), b: mins(s.end), s: s }; }));
       if (prop && prop.day === d) items.push({ kind: 'new', a: prop.a, b: prop.b, p: prop });
       layout(items);
-      html += '<div class="wk-col' + (current.name === 'new' ? (d > D.TODAY_INDEX ? ' can-place' : ' no-place') : '') + '" data-day="' + d + '" role="group" aria-label="' + longDate(d) + '">';
+      html += '<div class="wk-col' + (current.name === 'new' ? (d >= D.TODAY_INDEX ? ' can-place' : ' no-place') : '') + '" data-day="' + d + '" role="group" aria-label="' + longDate(d) + '">';
       var mark = prop && prop.day === d && !prop.clash ? prop : (act && act.day === d && !clashOf(act) ? { a: mins(act.start), b: mins(act.end) } : null);
       if (mark) freeGaps(d).forEach(function (g) {
         if (mark.a >= g[0] && mark.b <= g[1]) html += '<div class="gap" style="top:' + (g[0] - START) / (END - START) * 100 + '%;height:' + (g[1] - g[0]) / (END - START) * 100 + '%"></div>';
@@ -654,12 +665,12 @@
     });
     var dock = '';
     if (current.name === 'week' && act && (matches(act) || isBooked(act))) {
-      var clash = clashOf(act), line = isBooked(act) ? 'You have a seat. It’s in your week.' : isFull(act) ? 'This session is full.' : clash ? 'Clashes with your ' + clash.start + ' class.' : fitShort(act);
-      var cta = isBooked(act) ? '<a class="btn primary" href="#sessions">View booking</a>' : isFull(act) ? '<button class="btn" type="button" disabled>Session full</button>' : '<a class="btn primary" href="#pay/' + act.id + '">Book session</a>';
+      var clash = clashOf(act), line = isBooked(act) ? 'You have a seat. It’s in your week.' : isFull(act) ? (ended(act) ? 'This session has started.' : 'This session is full.') : clash ? 'Clashes with your ' + clash.start + ' class.' : fitShort(act);
+      var cta = isBooked(act) ? '<a class="btn primary" href="#sessions">View booking</a>' : isFull(act) ? '<button class="btn" type="button" disabled>' + (ended(act) ? 'Started' : 'Session full') + '</button>' : '<a class="btn primary" href="#pay/' + act.id + '">Book session</a>';
       dock = '<div class="dock"><span class="band-t ' + (tone(act) === 'full' ? C(act).colour : tone(act)) + '">' + act.start + '</span><div><h3>' + esc(act.title) + '</h3><p>' + esc(line) + '</p></div><b>' + rp(act.price) + '</b><a class="btn secondary" href="#s/' + act.id + '">Details</a>' + cta + '</div>';
     }
     var legend = '<div class="legend" aria-hidden="true"><span><i class="k-class"></i>Your class</span><span class="opt"><i class="k-gap"></i>Free gap</span>' + (state.role === 'approved' ? '<span class="opt"><i class="k-teach"></i>Teaching</span>' : '') + '<span><i class="k-mine"></i>Your booking</span>' + (current.name === 'new' ? '<span><i class="k-off"></i>Can’t schedule</span>' : '') + '</div>';
-    return '<div class="w-top"><h2>Your week, 23 to 29 Nov</h2>' + legend + '</div><div class="wk-scroll" style="flex:1;min-height:0;display:flex"><div class="wk" style="flex:1">' + html + '</div></div>' + dock;
+    return '<div class="w-top"><h2>Your week, ' + esc(D.WEEK_LABEL) + '</h2>' + legend + '</div><div class="wk-scroll" style="flex:1;min-height:0;display:flex"><div class="wk" style="flex:1">' + html + '</div></div>' + dock;
   }
   function navHtml() {
     var group = ROUTES[current.name], items = [['week', 'Your week'], ['sessions', 'My Sessions'], ['host', 'Host']];
@@ -797,7 +808,7 @@
         break;
       case 'cancel':
         var s = S(id);
-        openDialog('Cancel this booking?', '<b>' + esc(s.title) + '</b>, ' + longDate(s.day) + ' at ' + s.start + '.', 'It’s more than 24 hours before the session, so you get a full refund of <b>' + rp(s.price) + '</b> to the account you paid from.', 'Cancel booking', 'cancel-yes', id, 'Keep my seat');
+        openDialog('Cancel this booking?', '<b>' + esc(s.title) + '</b>, ' + longDate(s.day) + ' at ' + s.start + '.', (D.refundable(s.day, s.start) ? 'It’s more than 24 hours before the session, so you get a full refund of <b>' + rp(s.price) + '</b> to the account you paid from.' : 'It’s less than 24 hours before the session, so this booking can’t be refunded.'), 'Cancel booking', 'cancel-yes', id, 'Keep my seat');
         break;
       case 'cancel-yes':
         if (API) {
@@ -806,6 +817,7 @@
           API.cancel(id).then(function () { return sync(true); }).then(function () { busy = false; state.mytab = 'cancelled'; save(); dlg.close(); render({ keep: true }); }).catch(failed('Booking not cancelled'));
           break;
         }
+        state.refunds = state.refunds || {}; state.refunds[id] = D.refundable(S(id).day, S(id).start) ? S(id).price : 0;
         delete state.booked[id]; state.cancelled[id] = true; state.mytab = 'cancelled'; save(); dlg.close(); render({ keep: true }); break;
       case 'dlg-close': dlg.close(); break;
       case 'reset':

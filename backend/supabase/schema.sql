@@ -49,7 +49,7 @@ create table if not exists public.bookings (
   created_at timestamptz not null default now(),
   cancelled_at timestamptz
 );
-create unique index if not exists bookings_one_active on public.bookings (session_id, user_id) where status = 'booked';
+-- The one-seat-per-person index is per week; real-dates.sql creates it.
 create index if not exists bookings_by_session on public.bookings (session_id) where status = 'booked';
 
 create table if not exists public.applications (
