@@ -20,6 +20,74 @@
   })();
   function save() { try { sessionStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
 
+  /* ---------- Backend (Supabase, see api.js). With no backend configured, everything stays in this tab. ---------- */
+  var API = window.LN_API, EXTRA = [], CODES = {}, busy = false, SAMPLE = D.sessions.slice();
+  function signedIn() { return !!(API && API.user); }
+  function me() {
+    if (!API) return D.user;
+    var p = API.profile || {}, guest = !!(API.user && API.user.is_anonymous);
+    var full = p.full_name || (guest ? 'Guest' : 'LearNect student');
+    return { full: full, name: full.split(' ')[0], major: p.major || 'Computer Science', campus: p.campus || 'Kemanggisan', guest: guest };
+  }
+  // Bookings, applications, hosting and ratings belong to the account, so never trust a copy left in the tab.
+  function clearServerState() {
+    state.booked = {}; state.cancelled = {}; state.role = 'none'; state.hosted = []; CODES = {};
+    Object.keys(state.ratings).forEach(function (k) { if (state.ratings[k].sent) delete state.ratings[k]; });
+  }
+  function fromRow(r, counts, mine) {
+    var taken = counts.hasOwnProperty(r.id) ? counts[r.id] : r.base_booked, mentor = r.mentor;
+    if (!mentor || !D.mentors[mentor]) {
+      var full = r.host_name || 'Student mentor';
+      mentor = 'u:' + r.host_id;
+      D.mentors[mentor] = { id: mentor, name: full.split(' ')[0], full: full, major: 'Student mentor', rating: null, sessions: 0, initial: full.charAt(0).toUpperCase(), quote: '' };
+    }
+    return { id: r.id, course: r.course, mentor: mentor, day: r.day, start: r.start_t, end: r.end_t, price: r.price, seats: r.seats,
+      booked: Math.max(0, taken - (mine ? 1 : 0)), title: r.title, format: r.format, blurb: r.blurb, learn: r.learn || [], bring: r.bring || [] };
+  }
+  function applyServer(d) {
+    var uid = API.user && API.user.id, mine = {}, list = [], extra = [], hostedList = [];
+    clearServerState();
+    d.bookings.forEach(function (b) { if (b.status === 'booked') { state.booked[b.session_id] = true; mine[b.session_id] = true; CODES[b.session_id] = b.code; } });
+    d.bookings.forEach(function (b) { if (b.status === 'cancelled' && !mine[b.session_id]) state.cancelled[b.session_id] = true; });
+    d.sessions.forEach(function (r) {
+      if (uid && r.host_id === uid) {
+        if (r.status === 'live') hostedList.push({ id: r.id, course: r.course, title: r.title, day: r.day, start: r.start_t, end: r.end_t, price: r.price, seats: r.seats,
+          booked: d.counts.hasOwnProperty(r.id) ? d.counts[r.id] : r.base_booked, type: r.format.type, place: r.format.place });
+        return;
+      }
+      (r.listed && r.status === 'live' ? list : extra).push(fromRow(r, d.counts, mine[r.id]));
+    });
+    D.sessions = list; EXTRA = extra; state.hosted = hostedList;
+    state.role = d.profile ? d.profile.role : 'none';
+    if (d.profile && d.profile.prefs) state.prefs = d.profile.prefs;
+    if (d.application) { var a = d.application; state.app = { campus: a.campus, courses: a.courses, gpa: String(a.gpa), transcript: a.transcript, why: a.why, format: a.format, confirm: true }; }
+    d.ratings.forEach(function (r) { state.ratings[r.past_id] = { stars: r.stars, tags: r.tags, note: r.note, sent: true }; });
+    if (!S(state.pick) && D.sessions.length) state.pick = D.sessions[0].id;
+    save();
+  }
+  // Pull the latest from the server. Quiet syncs only redraw what can't disturb someone mid-task.
+  function sync(quiet) {
+    if (!API) return Promise.resolve();
+    return API.load().then(function (d) { applyServer(d); quiet ? softRefresh() : render({ keep: true }); });
+  }
+  function softRefresh() {
+    var a = document.activeElement, typing = a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.id !== 'q';
+    if (busy || dlg.open || typing) return;
+    if (current.name === 'week') { refreshFilters(); navEl.innerHTML = navHtml(); }
+    else if (['s', 'sessions', 'host', 'earnings', 'manage', 'notifications', 'profile'].indexOf(current.name) >= 0) render({ keep: true });
+  }
+  function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function working(btn, label) { busy = true; if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin" aria-hidden="true"></span>' + esc(label); } }
+  function notice(title, msg) {
+    busy = false;
+    dlg.innerHTML = '<h2 id="dlg-title">' + esc(title) + '</h2><p>' + esc(msg) + '</p><div class="dlg-a"><button class="btn primary" type="button" data-act="dlg-close">OK</button></div>';
+    if (!dlg.open) dlg.showModal();
+    dlg.querySelector('[data-act="dlg-close"]').focus();
+  }
+  function failed(title) {
+    return function (e) { notice(title, e.message); sync(true).catch(function () {}); render({ keep: true }); };
+  }
+
   /* ---------- Helpers ---------- */
   var DAY_S = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   var DAY_L = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -34,7 +102,8 @@
   function shortDate(d) { var x = dateOf(d); return DAY_S[d] + ' ' + x.getDate() + ' ' + MON[x.getMonth()]; }
   function rp(n) { return 'Rp' + String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
   function rpShort(n) { return 'Rp' + Math.round(n / 1000) + 'k'; }
-  function S(id) { for (var i = 0; i < D.sessions.length; i++) if (D.sessions[i].id === id) return D.sessions[i]; return null; }
+  function all() { return D.sessions.concat(EXTRA); }
+  function S(id) { var l = all(); for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i]; return null; }
   function C(s) { return D.courses[s.course]; }
   function M(s) { return D.mentors[s.mentor]; }
   function isBooked(s) { return !!state.booked[s.id]; }
@@ -64,7 +133,7 @@
     if (cur < END) out.push([cur, END]);
     return out;
   }
-  function bookingCode(s) { var h = 0; for (var i = 0; i < s.id.length; i++) h = (h * 31 + s.id.charCodeAt(i)) % 9000; return 'LN-' + (1000 + h); }
+  function bookingCode(s) { if (CODES[s.id]) return CODES[s.id]; var h = 0; for (var i = 0; i < s.id.length; i++) h = (h * 31 + s.id.charCodeAt(i)) % 9000; return 'LN-' + (1000 + h); }
   function cellsHtml(n, total) { var o = '<span class="cells" aria-hidden="true">'; for (var i = 0; i < total; i++) o += '<i' + (i < n ? ' class="f"' : '') + '></i>'; return o + '</span>'; }
   function seatsText(s) { if (isBooked(s)) return 'You have a seat'; var l = left(s); return l === 0 ? 'Full' : l + ' of ' + s.seats + ' seats left'; }
   function fitText(s) {
@@ -112,7 +181,9 @@
   }
 
   /* ---------- Routes ---------- */
-  var ROUTES = { week: 'week', s: 'week', pay: 'week', qris: 'week', done: 'week', sessions: 'sessions', rate: 'sessions', host: 'host', apply: 'host', applied: 'host', new: 'host', manage: 'host', earnings: 'earnings', notifications: 'notifications', help: 'help', profile: 'profile' };
+  var ROUTES = { week: 'week', s: 'week', pay: 'week', qris: 'week', done: 'week', sessions: 'sessions', rate: 'sessions', host: 'host', apply: 'host', applied: 'host', new: 'host', manage: 'host', earnings: 'earnings', notifications: 'notifications', help: 'help', profile: 'profile', signin: 'profile' };
+  // Pages that belong to an account. Signed-out visitors can still browse the week and session details.
+  var PRIVATE = { pay: 1, qris: 1, done: 1, sessions: 1, rate: 1, apply: 1, applied: 1, new: 1, manage: 1, earnings: 1, notifications: 1, profile: 1 };
   function parse() {
     var h = (location.hash || '#week').slice(1).split('/');
     return { name: ROUTES.hasOwnProperty(h[0]) ? h[0] : 'week', id: h[1] };
@@ -183,7 +254,7 @@
     else action = '<a class="btn primary" href="#pay/' + s.id + '">Book session</a>';
     return screen(head('Session', '#week'), band(s) + '<p>' + esc(s.blurb) + '</p><div class="seats">' + cellsHtml(taken(s), s.seats) + '<span>' + seatsText(s) + '</span></div>' + fit +
       '<h2 class="sec">Where</h2><div class="card place"><span class="ic">' + ic(s.format.type === 'online' ? 'video' : 'pin') + '</span><div><b>' + esc(s.format.place) + '</b><p>' + esc(s.format.detail) + '</p></div></div>' +
-      '<h2 class="sec">Your mentor</h2><div class="card"><div class="mentor"><span class="avatar" aria-hidden="true">' + m.initial + '</span><div><b>' + esc(m.full) + '</b><div class="meta">Peer mentor · ' + esc(m.major) + '</div><div class="meta num">' + ic('star') + ' ' + m.rating.toFixed(1) + ' · ' + m.sessions + ' sessions taught</div></div></div><p class="quote">“' + esc(m.quote) + '”</p></div>' +
+      '<h2 class="sec">Your mentor</h2><div class="card"><div class="mentor"><span class="avatar" aria-hidden="true">' + m.initial + '</span><div><b>' + esc(m.full) + '</b><div class="meta">Peer mentor · ' + esc(m.major) + '</div><div class="meta num">' + (m.rating ? ic('star') + ' ' + m.rating.toFixed(1) + ' · ' + m.sessions + ' sessions taught' : 'New mentor on LearNect') + '</div></div></div>' + (m.quote ? '<p class="quote">“' + esc(m.quote) + '”</p>' : '') + '</div>' +
       '<h2 class="sec">What you’ll learn</h2><ul class="checks">' + s.learn.map(function (l) { return '<li><span class="box">' + ic('check') + '</span>' + esc(l) + '</li>'; }).join('') + '</ul>' +
       '<h2 class="sec">Come prepared</h2><ul class="checks plain">' + s.bring.map(function (l) { return '<li><span class="box"></span>' + esc(l) + '</li>'; }).join('') + '</ul>' +
       '<h2 class="sec">Before you book</h2><div class="note">' + ic('info') + '<span>' + esc(D.refundRule) + '</span></div>',
@@ -242,7 +313,7 @@
 
   /* ---------- My Sessions ---------- */
   function sessions() {
-    var up = D.sessions.filter(isBooked).sort(byTime), can = D.sessions.filter(function (s) { return state.cancelled[s.id] && !isBooked(s); }), body;
+    var up = all().filter(isBooked).sort(byTime), can = all().filter(function (s) { return state.cancelled[s.id] && !isBooked(s); }), body;
     var tabs = [['upcoming', 'Upcoming (' + up.length + ')'], ['past', 'Past'], ['cancelled', 'Cancelled' + (can.length ? ' (' + can.length + ')' : '')]];
     if (state.mytab === 'upcoming') {
       body = up.length ? up.map(function (s) {
@@ -309,10 +380,10 @@
     var courses = '<div class="chips" role="group" aria-label="Courses you can teach">' + Object.keys(D.courses).map(function (k) {
       return '<button type="button" class="chip" id="ap-c-' + k + '" aria-pressed="' + (a.courses.indexOf(k) >= 0) + '" data-act="ap-course" data-v="' + k + '"><i style="background:var(--' + D.courses[k].colour + ')"></i>' + esc(D.courses[k].name) + '</button>';
     }).join('') + '</div>';
-    var transcript = a.transcript ? '<div class="file">' + ic('check') + '<span><b>Transcript_Alex.pdf</b><small>Sample file for this demo</small></span><button class="link" id="ap-transcript" type="button" data-act="ap-transcript">Remove</button></div>'
+    var transcript = a.transcript ? '<div class="file">' + ic('check') + '<span><b>Transcript_' + esc(me().name) + '.pdf</b><small>Sample file for this demo</small></span><button class="link" id="ap-transcript" type="button" data-act="ap-transcript">Remove</button></div>'
       : '<button class="btn secondary block" id="ap-transcript" type="button" data-act="ap-transcript">Attach sample transcript</button>';
     return screen(head('Apply to teach', '#host'), '<form class="form" id="apply-form" novalidate><p class="lede">We review every application before you can publish sessions.</p>' +
-      field('ap-name', 'Full name', '<input id="ap-name" value="' + esc(D.user.full) + '" readonly aria-readonly="true">', null, 'From your LearNect account') +
+      field('ap-name', 'Full name', '<input id="ap-name" value="' + esc(me().full) + '" readonly aria-readonly="true">', null, 'From your LearNect account') +
       field('ap-campus', 'Campus', '<select id="ap-campus" data-ap="campus">' + D.campuses.map(function (c) { return '<option' + (c === a.campus ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('') + '</select>') +
       '<div class="field' + (appErr.courses ? ' has-err' : '') + '"><span class="flabel">Courses you can teach</span>' + courses + errLine(appErr.courses) + '</div>' +
       field('ap-gpa', 'GPA', '<input id="ap-gpa" data-ap="gpa" inputmode="decimal" autocomplete="off" value="' + esc(a.gpa) + '"' + (appErr.gpa ? ' aria-invalid="true" aria-describedby="ap-gpa-err"' : '') + '>', appErr.gpa) +
@@ -338,6 +409,12 @@
       if (first) { first.scrollIntoView({ block: 'center' }); var f = first.querySelector('input, textarea, select, button'); if (f) f.focus({ preventScroll: true }); }
       return;
     }
+    if (API) {
+      if (busy) return;
+      working(document.querySelector('[data-act="ap-submit"]'), 'Submitting…');
+      API.apply(a).then(function () { return sync(true); }).then(function () { busy = false; location.hash = '#applied'; }).catch(failed('Application not sent'));
+      return;
+    }
     state.role = 'review'; save(); location.hash = '#applied';
   }
   function applied() {
@@ -345,7 +422,7 @@
     var a = state.app, ok = state.role === 'approved';
     return screen(head(ok ? 'You’re approved' : 'Application submitted', null, '<a class="back" style="margin:0 -10px 0 0" href="#host" aria-label="Close">' + ic('close') + '</a>'),
       '<p class="lede" style="margin-bottom:14px">' + (ok ? 'You can publish sessions from Host.' : 'We’ll notify you when your status changes. You can keep booking sessions meanwhile.') + '</p>' +
-      '<div class="card"><div class="line"><span class="k">Status</span><span><b>' + (ok ? 'Approved' : 'Under review') + '</b></span></div><div class="line"><span class="k">Applicant</span><span>' + esc(D.user.full) + '</span></div><div class="line"><span class="k">Campus</span><span>' + esc(a.campus) + '</span></div><div class="line"><span class="k">Courses</span><span>' + a.courses.map(function (c) { return esc(D.courses[c].name); }).join(', ') + '</span></div><div class="line"><span class="k">GPA</span><span>' + esc(a.gpa) + '</span></div></div>' +
+      '<div class="card"><div class="line"><span class="k">Status</span><span><b>' + (ok ? 'Approved' : 'Under review') + '</b></span></div><div class="line"><span class="k">Applicant</span><span>' + esc(me().full) + '</span></div><div class="line"><span class="k">Campus</span><span>' + esc(a.campus) + '</span></div><div class="line"><span class="k">Courses</span><span>' + a.courses.map(function (c) { return esc(D.courses[c].name); }).join(', ') + '</span></div><div class="line"><span class="k">GPA</span><span>' + esc(a.gpa) + '</span></div></div>' +
       (ok ? '<a class="btn primary block" style="margin-top:16px" href="#host">Go to Host</a>' : '<div class="demo-box"><span class="flag">Demo control</span><p>In the real product, the LearNect team reviews this. For the showcase, approve it here.</p><button class="btn primary block" type="button" data-act="ap-approve">Approve application</button></div>'));
   }
 
@@ -396,11 +473,21 @@
     if (!n.title.trim()) { nwErr = 'Give your session a title.'; render({ keep: true }); var i = document.getElementById('nw-title'); if (i) i.focus(); return; }
     if (nwClash()) return;
     nwErr = '';
+    function next() {
+      state.nw = clone(D.newSessionSeed); state.nw.title = ''; state.hostTab = 'upcoming';
+      for (var t = mins(state.nw.start); t <= 19 * 60 && nwClash(); t += 30) state.nw.start = hhmm(t);
+      busy = false; save();
+      location.hash = '#host';
+    }
+    if (API) {
+      if (busy) return;
+      working(document.querySelector('[data-act="nw-publish"]'), 'Publishing…');
+      API.publish({ course: n.course, title: n.title.trim(), day: n.day, start: n.start, len: n.len, format: n.format, seats: n.seats, price: n.price })
+        .then(function () { return sync(true); }).then(next).catch(failed('Session not published'));
+      return;
+    }
     state.hosted.push({ id: 'h-' + Date.now(), course: n.course, title: n.title.trim(), day: n.day, start: n.start, end: hhmm(nwEnd()), price: n.price, seats: n.seats, booked: 0, type: n.format, place: n.format === 'online' ? 'Google Meet' : 'Study Room, ' + state.app.campus.split(' (')[0] + ' Campus' });
-    state.nw = clone(D.newSessionSeed); state.nw.title = ''; state.hostTab = 'upcoming';
-    for (var t = mins(state.nw.start); t <= 19 * 60 && nwClash(); t += 30) state.nw.start = hhmm(t);
-    save();
-    location.hash = '#host';
+    next();
   }
   function manage(id) {
     var h = hosted(id); if (!h) return notFound();
@@ -456,10 +543,57 @@
     else if (state.role === 'review') teach = '<div class="card stack"><div class="filter-row"><b>Mentor application</b><span class="status">Under review</span></div><p class="lede">We’ll notify you when your status changes.</p><a class="btn secondary block" href="#applied">See application</a></div>';
     else teach = '<div class="card stack"><b>Want to teach?</b><p class="lede">Help other students with a course you aced and keep 80% of each booking.</p><a class="btn primary block" href="#host">Become a mentor</a></div>';
     function row(href, icon, label) { return '<a href="' + href + '">' + ic(icon) + '<span>' + label + '</span>' + ic('back', 'class="chev"') + '</a>'; }
-    return screen(head('Profile'), '<div class="card mentor"><span class="avatar" aria-hidden="true">A</span><div><b>' + esc(D.user.full) + '</b><div class="meta">' + esc(D.user.major) + ' · ' + esc(D.user.campus) + '</div></div></div>' +
+    return screen(head('Profile'), '<div class="card mentor"><span class="avatar" aria-hidden="true">' + esc(me().full.charAt(0)) + '</span><div><b>' + esc(me().full) + '</b><div class="meta">' + esc(me().major) + ' · ' + esc(me().campus) + '</div></div></div>' +
       '<h2 class="sec">My courses</h2><div class="chips">' + Object.keys(D.courses).map(function (k) { return '<span class="chip chip-static"><i style="background:var(--' + D.courses[k].colour + ')"></i>' + esc(D.courses[k].name) + '</span>'; }).join('') + '</div>' +
       '<h2 class="sec">Teaching</h2>' + teach + '<h2 class="sec">Account</h2><div class="menu">' + row('#notifications', 'bell', 'Notifications') + row('#help', 'info', 'Help & support') + '</div>' +
-      '<button class="btn secondary block" style="margin-top:14px" type="button" data-act="reset">Reset demo</button>');
+      (API && me().guest ? '<div class="note" style="margin-top:14px">' + ic('info') + '<span>You’re using LearNect as a guest. Your bookings stay until you sign out.</span></div>' : '') +
+      '<button class="btn secondary block" style="margin-top:14px" type="button" data-act="reset">' + (API ? 'Sign out' : 'Reset demo') + '</button>');
+  }
+
+  /* ---------- Sign in and create account ---------- */
+  var authMode = 'in', authErr = '', authNote = '', authVals = { name: '', email: '' };
+  function signin() {
+    if (!API) { location.replace('#week'); return ''; }
+    if (signedIn()) { var to = state.after || '#week'; state.after = null; save(); location.replace(to); return ''; }
+    var up = authMode === 'up';
+    return screen(head(up ? 'Create your account' : 'Sign in'),
+      '<div class="seg wide" role="group" aria-label="Account" style="margin-bottom:14px">' + [['in', 'Sign in'], ['up', 'Create account']].map(function (t) {
+        return '<button type="button" id="au-m-' + t[0] + '" aria-pressed="' + (authMode === t[0]) + '" data-act="auth-mode" data-v="' + t[0] + '">' + t[1] + '</button>';
+      }).join('') + '</div>' +
+      '<form class="form" id="auth-form" novalidate><p class="lede">' + (up ? 'One account to book sessions and to teach the courses you aced.' : 'Sign in to book sessions, see My Sessions and host your own.') + '</p>' +
+      (up ? field('au-name', 'Full name', '<input id="au-name" autocomplete="name" maxlength="60" value="' + esc(authVals.name) + '">') : '') +
+      field('au-email', 'Email', '<input id="au-email" type="email" autocomplete="email" inputmode="email" value="' + esc(authVals.email) + '">') +
+      field('au-pass', 'Password', '<input id="au-pass" type="password" autocomplete="' + (up ? 'new-password' : 'current-password') + '">', null, up ? 'At least 6 characters' : '') +
+      errLine(authErr) + (authNote ? '<div class="note">' + ic('info') + '<span>' + esc(authNote) + '</span></div>' : '') +
+      '<button type="submit" hidden></button></form>' +
+      '<div class="demo-box"><span class="flag">Just looking?</span><p>Try every feature without an account. As a guest, your bookings are real seats and stay until you sign out.</p><button class="btn secondary block" type="button" data-act="auth-guest">Continue as guest</button></div>',
+      '<button class="btn primary" type="button" data-act="auth-go">' + (up ? 'Create account' : 'Sign in') + '</button>');
+  }
+  function val(id) { var el = document.getElementById(id); return el ? el.value : ''; }
+  function authFail(msg) {
+    busy = false; authErr = msg; authNote = ''; render({ keep: true });
+    var bad = document.getElementById(!authVals.email ? 'au-email' : 'au-pass'); if (bad) bad.focus();
+  }
+  function afterAuth() {
+    authErr = ''; authNote = ''; authVals = { name: '', email: '' };
+    return sync(true).then(function () {
+      busy = false;
+      var to = state.after || '#week'; state.after = null; save();
+      if (location.hash === to) render({ moved: true }); else location.hash = to;
+    });
+  }
+  function doAuth(btn) {
+    if (busy) return;
+    var up = authMode === 'up', name = up ? val('au-name').trim() : '', email = val('au-email').trim(), pass = val('au-pass');
+    authVals = { name: name, email: email };
+    if (up && !name) return authFail('Write your full name.');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return authFail('Write your email, like you@binus.ac.id.');
+    if (pass.length < 6) return authFail('Use a password of at least 6 characters.');
+    working(btn || paneEl.parentNode.querySelector('[data-act="auth-go"]'), up ? 'Creating account…' : 'Signing in…');
+    (up ? API.signUp(name, email, pass) : API.signIn(email, pass)).then(function (r) {
+      if (r && r.needsConfirm) { busy = false; authMode = 'in'; authErr = ''; authNote = 'We sent a confirmation link to ' + email + '. Open it, then sign in here.'; render({ keep: true }); return; }
+      return afterAuth();
+    }).catch(function (e) { authFail(e.message); });
   }
 
   /* ---------- The week ---------- */
@@ -532,16 +666,19 @@
     if (state.role === 'approved') items.push(['earnings', 'Earnings']);
     return '<a class="logo" href="../"><img src="../assets/brand/logo.svg?v=2" alt="" width="28" height="28">LearNect</a>' +
       '<nav class="links" aria-label="Main">' + items.map(function (i) { return '<a href="#' + i[0] + '"' + (group === i[0] ? ' aria-current="page"' : '') + '>' + i[1] + '</a>'; }).join('') + '</nav>' +
-      '<div class="tools"><span class="demo-tag">Demo<span class="demo-more"> · sample data</span></span><button class="text-btn" type="button" data-act="reset">Reset demo</button>' +
-      '<a class="icon" href="#notifications" aria-label="Notifications"' + (group === 'notifications' ? ' aria-current="page"' : '') + '>' + ic('bell') + '</a>' +
+      '<div class="tools">' + (API ? '<span class="demo-tag">Demo<span class="demo-more"> · simulated QRIS</span></span>' : '<span class="demo-tag">Demo<span class="demo-more"> · sample data</span></span><button class="text-btn" type="button" data-act="reset">Reset demo</button>') +
+      (API && !signedIn() ? '' : '<a class="icon" href="#notifications" aria-label="Notifications"' + (group === 'notifications' ? ' aria-current="page"' : '') + '>' + ic('bell') + '</a>') +
       '<a class="icon" href="#help" aria-label="Help and support"' + (group === 'help' ? ' aria-current="page"' : '') + '>' + ic('info') + '</a>' +
-      '<a class="me" href="#profile" aria-label="Profile"' + (group === 'profile' ? ' aria-current="page"' : '') + '><span>' + esc(D.user.full) + '</span><b aria-hidden="true">A</b></a></div>';
+      (API && !signedIn() ? '<a class="text-btn keep" href="#signin"' + (current.name === 'signin' ? ' aria-current="page"' : '') + '>Sign in</a></div>'
+        : '<a class="me" href="#profile" aria-label="Profile"' + (group === 'profile' ? ' aria-current="page"' : '') + '><span>' + esc(me().full) + '</span><b aria-hidden="true">' + esc(me().full.charAt(0)) + '</b></a></div>');
   }
 
   /* ---------- Render ---------- */
-  var TITLES = { week: 'Your week', s: 'Session', pay: 'Review & pay', qris: 'Pay with QRIS', done: 'Booking confirmed', sessions: 'My Sessions', host: 'Host', apply: 'Apply to teach', applied: 'Application', new: 'Create session', manage: 'Manage session', earnings: 'Earnings', rate: 'Rate session', notifications: 'Notifications', help: 'Help & support', profile: 'Profile' };
+  var TITLES = { week: 'Your week', s: 'Session', pay: 'Review & pay', qris: 'Pay with QRIS', done: 'Booking confirmed', sessions: 'My Sessions', host: 'Host', apply: 'Apply to teach', applied: 'Application', new: 'Create session', manage: 'Manage session', earnings: 'Earnings', rate: 'Rate session', notifications: 'Notifications', help: 'Help & support', profile: 'Profile', signin: 'Sign in' };
   function view(r) {
+    if (API && !API.user && PRIVATE[r.name]) { state.after = location.hash; save(); location.replace('#signin'); return ''; }
     switch (r.name) {
+      case 'signin': return signin();
       case 's': return details(r.id);
       case 'pay': return pay(r.id);
       case 'qris': return qris(r.id);
@@ -640,7 +777,7 @@
     switch (act) {
       case 'pick':
         // On a narrow screen the booking bar is far below the list, so a pick opens the session itself.
-        if (current.name === 'week' && !narrow()) { state.pick = id; save(); renderWeek(); var list = paneEl.querySelectorAll('.row'); for (x = 0; x < list.length; x++) { var me = list[x].getAttribute('data-id') === id; list[x].setAttribute('aria-pressed', me); list[x].classList.remove('is-on'); } var focusBack = t.closest('#results') ? null : weekEl.querySelector('[data-sid="' + id + '"]'); if (focusBack) focusBack.focus(); }
+        if (current.name === 'week' && !narrow()) { state.pick = id; save(); renderWeek(); var list = paneEl.querySelectorAll('.row'); for (x = 0; x < list.length; x++) { var isMe = list[x].getAttribute('data-id') === id; list[x].setAttribute('aria-pressed', isMe); list[x].classList.remove('is-on'); } var focusBack = t.closest('#results') ? null : weekEl.querySelector('[data-sid="' + id + '"]'); if (focusBack) focusBack.focus(); }
         else location.hash = '#s/' + id;
         break;
       case 'course': state.course = v; save(); render({ keep: true }); break;
@@ -648,22 +785,56 @@
       case 'clear': state.q = ''; state.course = 'all'; state.format = 'all'; state.fits = false; save(); render({ keep: true }); break;
       case 'mytab': state.mytab = v; save(); render({ keep: true }); break;
       case 'paid':
-        t.disabled = true; t.innerHTML = '<span class="spin" aria-hidden="true"></span>Checking payment…';
-        setTimeout(function () { state.booked[id] = true; delete state.cancelled[id]; state.lastBooked = id; state.pick = id; save(); location.hash = '#done/' + id; }, 900);
+        if (busy) break;
+        working(t, 'Checking payment…');
+        if (API) {
+          Promise.all([API.book(id), wait(900)]).then(function () { return sync(true); })
+            .then(function () { busy = false; state.lastBooked = id; state.pick = id; save(); location.hash = '#done/' + id; })
+            .catch(failed('Booking didn’t go through'));
+          break;
+        }
+        setTimeout(function () { busy = false; state.booked[id] = true; delete state.cancelled[id]; state.lastBooked = id; state.pick = id; save(); location.hash = '#done/' + id; }, 900);
         break;
       case 'cancel':
         var s = S(id);
         openDialog('Cancel this booking?', '<b>' + esc(s.title) + '</b>, ' + longDate(s.day) + ' at ' + s.start + '.', 'It’s more than 24 hours before the session, so you get a full refund of <b>' + rp(s.price) + '</b> to the account you paid from.', 'Cancel booking', 'cancel-yes', id, 'Keep my seat');
         break;
-      case 'cancel-yes': delete state.booked[id]; state.cancelled[id] = true; state.mytab = 'cancelled'; save(); dlg.close(); render({ keep: true }); break;
+      case 'cancel-yes':
+        if (API) {
+          if (busy) break;
+          working(t, 'Cancelling…');
+          API.cancel(id).then(function () { return sync(true); }).then(function () { busy = false; state.mytab = 'cancelled'; save(); dlg.close(); render({ keep: true }); }).catch(failed('Booking not cancelled'));
+          break;
+        }
+        delete state.booked[id]; state.cancelled[id] = true; state.mytab = 'cancelled'; save(); dlg.close(); render({ keep: true }); break;
       case 'dlg-close': dlg.close(); break;
-      case 'reset': state = fresh(); appErr = {}; nwErr = ''; save(); if (location.hash === '#week' || !location.hash) render({ moved: true }); else location.hash = '#week'; break;
+      case 'reset':
+        // Offline: start the demo again. With accounts: sign out, so the next visitor starts clean.
+        state = fresh(); appErr = {}; nwErr = ''; authErr = ''; authNote = '';
+        (API ? API.signOut().then(function () { clearServerState(); save(); return sync(true); }).catch(function () {}) : Promise.resolve()).then(function () {
+          save(); if (location.hash === '#week' || !location.hash) render({ moved: true }); else location.hash = '#week';
+        });
+        break;
+      case 'auth-mode': authMode = v; authErr = ''; authNote = ''; authVals = { name: val('au-name') || authVals.name, email: val('au-email') }; render({ keep: true }); var mb = document.getElementById('au-m-' + v); if (mb) mb.focus(); break;
+      case 'auth-go': doAuth(t); break;
+      case 'auth-guest':
+        if (busy) break;
+        working(t, 'Starting guest session…');
+        API.guest().then(afterAuth).catch(function (e) { busy = false; authErr = e.message; render({ keep: true }); });
+        break;
       case 'hosttab': state.hostTab = v; again(); break;
       case 'ap-course': x = a.courses.indexOf(v); if (x >= 0) a.courses.splice(x, 1); else a.courses.push(v); delete appErr.courses; again(t); break;
       case 'ap-format': a.format = v; again(t); break;
       case 'ap-transcript': a.transcript = !a.transcript; delete appErr.transcript; again(t); break;
       case 'ap-submit': submitApply(); break;
-      case 'ap-approve': state.role = 'approved'; if (!state.hosted.length) state.hosted = clone(D.hostSeed); save(); location.hash = '#host'; break;
+      case 'ap-approve':
+        if (API) {
+          if (busy) break;
+          working(t, 'Approving…');
+          API.approve().then(function () { return sync(true); }).then(function () { busy = false; location.hash = '#host'; }).catch(failed('Not approved'));
+          break;
+        }
+        state.role = 'approved'; if (!state.hosted.length) state.hosted = clone(D.hostSeed); save(); location.hash = '#host'; break;
       case 'nw-course': n.course = v; again(t); break;
       case 'nw-day': n.day = +v; again(t); break;
       case 'nw-len': n.len = +v; again(t); break;
@@ -677,12 +848,27 @@
         var h = hosted(id);
         openDialog('Cancel this session?', '<b>' + esc(h.title) + '</b>, ' + longDate(h.day) + ' at ' + h.start + '.', h.booked ? 'All ' + plural(h.booked, 'booked student gets', 'booked students get') + ' a full refund.' : 'Nobody has booked yet.', 'Cancel session', 'host-cancel-yes', id, 'Keep session');
         break;
-      case 'host-cancel-yes': state.hosted = state.hosted.filter(function (x) { return x.id !== id; }); save(); dlg.close(); location.hash = '#host'; break;
+      case 'host-cancel-yes':
+        if (API) {
+          if (busy) break;
+          working(t, 'Cancelling…');
+          API.cancelHosted(id).then(function () { return sync(true); }).then(function () { busy = false; dlg.close(); location.hash = '#host'; }).catch(failed('Session not cancelled'));
+          break;
+        }
+        state.hosted = state.hosted.filter(function (x) { return x.id !== id; }); save(); dlg.close(); location.hash = '#host'; break;
       case 'rate-star': case 'rate-tag': case 'rate-send':
         var r = state.ratings[id] || (state.ratings[id] = { stars: 0, tags: [], note: '', sent: false });
         if (act === 'rate-star') r.stars = +v;
         if (act === 'rate-tag') { x = r.tags.indexOf(v); if (x >= 0) r.tags.splice(x, 1); else r.tags.push(v); }
-        if (act === 'rate-send') { r.sent = true; save(); render({ moved: true }); break; }
+        if (act === 'rate-send') {
+          if (API) {
+            if (busy) break;
+            working(t, 'Sending…');
+            API.rate(id, r).then(function () { busy = false; r.sent = true; save(); render({ moved: true }); }).catch(failed('Rating not sent'));
+            break;
+          }
+          r.sent = true; save(); render({ moved: true }); break;
+        }
         again(t); break;
     }
   });
@@ -706,9 +892,28 @@
       return;
     }
     if ((k = el.getAttribute('data-rate'))) { var r = state.ratings[k] || (state.ratings[k] = { stars: 0, tags: [], note: '', sent: false }); r.note = el.value; save(); return; }
-    if ((k = el.getAttribute('data-pref'))) { state.prefs[k] = el.checked; save(); }
+    if ((k = el.getAttribute('data-pref'))) { state.prefs[k] = el.checked; save(); if (API && API.user) API.prefs(state.prefs).catch(function () {}); }
+  });
+  document.addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (e.target.id === 'auth-form') doAuth();
   });
 
   if (S(current.id) && inBooking()) state.pick = current.id;
-  render();
+  if (!API) { render(); return; }
+
+  // With a backend: load the account and the shared seats first. If that fails, run the offline demo instead.
+  clearServerState();
+  navEl.innerHTML = navHtml(); renderWeek();
+  paneEl.innerHTML = '<div class="p-scroll"><div class="p-body"><p class="lede" style="display:flex;gap:10px;align-items:center"><span class="spin" aria-hidden="true"></span>Loading your week…</p></div></div>';
+  API.init().then(function () { return API.load(); }).then(function (d) {
+    applyServer(d);
+    API.onAuth = function () { if (busy) return; if (!API.user) { clearServerState(); save(); } sync(false).catch(function () {}); };
+    setInterval(function () { if (!document.hidden) sync(true).catch(function () {}); }, 15000);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) sync(true).catch(function () {}); });
+    render();
+  }).catch(function (e) {
+    if (window.console) console.warn('LearNect backend unavailable, so the site runs as the offline demo.', e);
+    API = null; D.sessions = SAMPLE; EXTRA = []; render();
+  });
 })();

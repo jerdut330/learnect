@@ -412,3 +412,9 @@ button.b:active, a.b:active { transform: scale(0.97); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; animation-delay: 0ms !important; transition-duration: 1ms !important; }
 }
+
+/* Sign in link in the bar: always visible, even where Reset demo hides on phones */
+a.text-btn { display: inline-flex; align-items: center; text-decoration: none; }
+.text-btn.keep { border: 1.5px solid var(--navy); }
+.text-btn.keep[aria-current="page"] { background: var(--navy); color: var(--paper); }
+@media (max-width: 520px) { .text-btn.keep { display: inline-flex; } }
