@@ -991,7 +991,7 @@
   }
   var current = parse();
 
-  function view(r) {
+  var view = function (r) {
     if (API && !API.user && PRIVATE[r.name]) { state.after = location.hash; save(); location.replace('#signin'); return ''; }
     switch (r.name) {
       case 'signin': return signin();
@@ -1013,7 +1013,8 @@
       case 'help': return help();
       default: return home();
     }
-  }
+  };
+
   function render(opts) {
     clearInterval(timerId);
     var html = view(current);
@@ -1132,17 +1133,23 @@
 
   if (!API) { render(); return; }
 
-  // With a backend: load the account and the shared seats first. If that fails, run the offline demo instead.
+  // With a backend: show the week straight away from the sample data (the same sessions and starting seats as the
+  // database), then swap in the account and live seats when they arrive. Only account pages wait. If the server
+  // can't be reached, the offline demo carries on.
   clearServerState();
-  app.innerHTML = '<div class="screen"><div class="pad" style="padding-top:80px"><p class="sub" style="display:flex;gap:10px;align-items:center"><span class="spin" aria-hidden="true" style="width:16px;height:16px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;display:inline-block;animation:spin 700ms linear infinite"></span>Loading your week…</p></div></div>';
+  var LOADING = '<div class="screen"><div class="pad" style="padding-top:80px"><p class="sub" style="display:flex;gap:10px;align-items:center"><span class="spin" aria-hidden="true" style="width:16px;height:16px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;display:inline-block;animation:spin 700ms linear infinite"></span>Loading your week…</p></div></div>';
+  var ready = false, realView = view;
+  view = function (r) { return ready || !PRIVATE[r.name] && r.name !== 'signin' ? realView(r) : LOADING; };
+  render();
   API.init().then(function () { return API.load(); }).then(function (d) {
-    applyServer(d);
+    applyServer(d); ready = true;
     API.onAuth = function () { if (busy) return; if (!API.user) { clearServerState(); save(); } sync(false).catch(function () {}); };
     setInterval(function () { if (!document.hidden) sync(true).catch(function () {}); }, 15000);
     document.addEventListener('visibilitychange', function () { if (!document.hidden) sync(true).catch(function () {}); });
-    render();
+    if (app.querySelector('.scrim') || busy) return;
+    render({ keepScroll: !PRIVATE[current.name] && current.name !== 'signin' });
   }).catch(function (e) {
     if (window.console) console.warn('LearNect backend unavailable, so the demo runs offline.', e);
-    API = null; D.sessions = SAMPLE; EXTRA = []; render();
+    API = null; D.sessions = SAMPLE; EXTRA = []; ready = true; render();
   });
 })();

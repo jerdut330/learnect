@@ -4,10 +4,22 @@
 window.LN_API = (function () {
   'use strict';
   var cfg = window.LN_CONFIG || {};
-  if (!cfg.url || !cfg.key || !window.supabase || !window.supabase.createClient) return null;
+  if (!cfg.url || !cfg.key) return null;
 
-  var sb = window.supabase.createClient(cfg.url, cfg.key, { auth: { persistSession: true, autoRefreshToken: true, storageKey: 'learnect-auth' } });
+  // The Supabase library loads in the background, so the app can draw the week before it arrives.
+  var LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.2/dist/umd/supabase.js';
+  var sb = null;
   var api = { user: null, profile: null, onAuth: null };
+  var libReady = new Promise(function (resolve, reject) {
+    if (window.supabase && window.supabase.createClient) return resolve();
+    var tag = document.createElement('script');
+    tag.src = LIB; tag.crossOrigin = 'anonymous'; tag.async = true;
+    tag.onload = function () { window.supabase && window.supabase.createClient ? resolve() : reject(new Error('Supabase library missing')); };
+    tag.onerror = function () { reject(new Error('Supabase library did not load')); };
+    document.head.appendChild(tag);
+  }).then(function () {
+    sb = window.supabase.createClient(cfg.url, cfg.key, { auth: { persistSession: true, autoRefreshToken: true, storageKey: 'learnect-auth' } });
+  });
 
   function fail(err) {
     var m = (err && (err.message || err.error_description)) || 'Something went wrong. Try again.';
@@ -26,7 +38,7 @@ window.LN_API = (function () {
   }
 
   api.init = function () {
-    return withTimeout(sb.auth.getSession(), 8000).then(function (res) {
+    return withTimeout(libReady.then(function () { return sb.auth.getSession(); }), 10000).then(function (res) {
       api.user = res.data && res.data.session ? res.data.session.user : null;
       sb.auth.onAuthStateChange(function (ev, session) {
         var next = session ? session.user : null;

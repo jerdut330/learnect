@@ -686,7 +686,7 @@
 
   /* ---------- Render ---------- */
   var TITLES = { week: 'Your week', s: 'Session', pay: 'Review & pay', qris: 'Pay with QRIS', done: 'Booking confirmed', sessions: 'My Sessions', host: 'Host', apply: 'Apply to teach', applied: 'Application', new: 'Create session', manage: 'Manage session', earnings: 'Earnings', rate: 'Rate session', notifications: 'Notifications', help: 'Help & support', profile: 'Profile', signin: 'Sign in' };
-  function view(r) {
+  var view = function (r) {
     if (API && !API.user && PRIVATE[r.name]) { state.after = location.hash; save(); location.replace('#signin'); return ''; }
     switch (r.name) {
       case 'signin': return signin();
@@ -707,7 +707,8 @@
       case 'profile': return profile();
       default: return weekPane();
     }
-  }
+  };
+
   function renderWeek() {
     weekEl.innerHTML = weekHtml();
     var sc = weekEl.querySelector('.wk-scroll'), on = weekEl.querySelector('.wk-dh.on');
@@ -916,18 +917,22 @@
   if (S(current.id) && inBooking()) state.pick = current.id;
   if (!API) { render(); return; }
 
-  // With a backend: load the account and the shared seats first. If that fails, run the offline demo instead.
+  // With a backend: show the week straight away from the sample data (the same sessions and starting seats as the
+  // database), then swap in the account and live seats when they arrive. Only account pages wait.
   clearServerState();
-  navEl.innerHTML = navHtml(); renderWeek();
-  paneEl.innerHTML = '<div class="p-scroll"><div class="p-body"><p class="lede" style="display:flex;gap:10px;align-items:center"><span class="spin" aria-hidden="true"></span>Loading your week…</p></div></div>';
+  var LOADING = '<div class="p-scroll"><div class="p-body"><p class="lede" style="display:flex;gap:10px;align-items:center"><span class="spin" aria-hidden="true"></span>Loading your week…</p></div></div>';
+  var ready = false, realView = view;
+  view = function (r) { return ready || !PRIVATE[r.name] && r.name !== 'signin' ? realView(r) : LOADING; };
+  render();
   API.init().then(function () { return API.load(); }).then(function (d) {
-    applyServer(d);
+    applyServer(d); ready = true;
     API.onAuth = function () { if (busy) return; if (!API.user) { clearServerState(); save(); } sync(false).catch(function () {}); };
     setInterval(function () { if (!document.hidden) sync(true).catch(function () {}); }, 15000);
     document.addEventListener('visibilitychange', function () { if (!document.hidden) sync(true).catch(function () {}); });
-    render();
+    if (dlg.open || busy) return;
+    render({ keep: !PRIVATE[current.name] && current.name !== 'signin' });
   }).catch(function (e) {
     if (window.console) console.warn('LearNect backend unavailable, so the site runs as the offline demo.', e);
-    API = null; D.sessions = SAMPLE; EXTRA = []; render();
+    API = null; D.sessions = SAMPLE; EXTRA = []; ready = true; render();
   });
 })();
